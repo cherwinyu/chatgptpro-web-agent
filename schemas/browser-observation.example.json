@@ -1,0 +1,17 @@
+{
+  "mode": "CHAT",
+  "project_id": "example-project-id",
+  "conversation_id": "example-existing-conversation-id",
+  "browser_context": "example-browser-profile",
+  "tab_id": "example-browser-tab-id",
+  "model_label": "Example observed model label",
+  "effort_label": "Example observed effort label",
+  "page_url": "https://chatgpt.com/",
+  "observed_at": 1700000000,
+  "logged_in": true,
+  "composer_ready": true,
+  "selection_unambiguous": true,
+  "mode_evidence": "EXAMPLE ONLY: selected Chat mode control",
+  "project_evidence": "EXAMPLE ONLY: selected sidebar project and breadcrumb agree",
+  "conversation_evidence": "EXAMPLE ONLY: selected conversation id agrees with active page"
+}

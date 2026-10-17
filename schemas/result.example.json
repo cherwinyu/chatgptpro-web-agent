@@ -1,0 +1,9 @@
+{
+  "protocol_version": 2,
+  "task_id": "00000000-0000-4000-8000-000000000000",
+  "nonce": "0123456789abcdef0123456789abcdef",
+  "request_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "baseline_sha": "0123456789abcdef0123456789abcdef01234567",
+  "status": "REQUEST_CHANGES",
+  "report_sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+}

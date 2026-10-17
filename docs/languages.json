@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "languages": [
+    "en",
+    "zh-CN"
+  ],
+  "default_machine_language": "en",
+  "pairs": [
+    {
+      "en": "README.md",
+      "zh-CN": "README.zh-CN.md"
+    },
+    {
+      "en": "docs/QUICKSTART.md",
+      "zh-CN": "docs/QUICKSTART.zh-CN.md"
+    },
+    {
+      "en": "docs/RESEARCH_USE.md",
+      "zh-CN": "docs/RESEARCH_USE.zh-CN.md"
+    },
+    {
+      "en": "docs/MIGRATION_SCOPE.md",
+      "zh-CN": "docs/MIGRATION_SCOPE.zh-CN.md"
+    }
+  ]
+}

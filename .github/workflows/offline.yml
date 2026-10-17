@@ -1,0 +1,59 @@
+name: Private offline research CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-offline:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Prevent checkout line ending conversion
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - name: Checkout only this repository (no credentials retained)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Require no-reply author and committer on all reachable history
+        shell: pwsh
+        run: |
+          python -B scripts/commit_identity_gate.py --repository . --event "$env:GITHUB_EVENT_PATH"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify allowlist and license bytes before running any fixture
+        shell: pwsh
+        run: |
+          python -B scripts/publication_audit.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Bilingual preview / fixed JSON and refusal cases
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s tests/publication -p test_*.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Offline demo (no remote sends)
+        shell: pwsh
+        run: |
+          python -B adapters/generic/run_bridge.py demo --json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Local protocol and security regressions
+        shell: pwsh
+        run: |
+          python -B tests/pro_bridge/test_faults.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B tests/pro_bridge/test_security.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Scoped offline audit regressions
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s tests/audit -p test_*.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

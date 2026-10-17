@@ -1,0 +1,52 @@
+{
+  "protocol_version": 2,
+  "task_id": "00000000-0000-4000-8000-000000000000",
+  "nonce": "0123456789abcdef0123456789abcdef",
+  "orchestration_id": "example-orchestration",
+  "task_type": "READ_ONLY_REVIEW",
+  "source_repository": "exampleowner/example-repo",
+  "source_ref": "refs/heads/main",
+  "source_sha": "0123456789abcdef0123456789abcdef01234567",
+  "read_targets": [
+    "docs/EXAMPLE.md"
+  ],
+  "write_targets": [
+    ".pro_bridge/results/00000000-0000-4000-8000-000000000000.json",
+    ".pro_bridge/reports/00000000-0000-4000-8000-000000000000.md"
+  ],
+  "expected_output": "review report",
+  "acceptance_criteria": [
+    "delivery hashes match the manifest"
+  ],
+  "requested_model": "UI_SELECTION_REQUIRED",
+  "deadline": 1700003600,
+  "deadline_at": 1700003600,
+  "permissions": {
+    "read_repositories": [
+      "exampleowner/example-repo"
+    ],
+    "result_branch": "test/pro-result-00000000",
+    "result_paths": [
+      ".pro_bridge/results/00000000-0000-4000-8000-000000000000.json",
+      ".pro_bridge/reports/00000000-0000-4000-8000-000000000000.md"
+    ],
+    "allow_pr": false,
+    "allow_main_write": false,
+    "explicit_code_write": false,
+    "code_branch": null,
+    "code_paths": []
+  },
+  "mode": "read_only",
+  "allowed_paths": [
+    ".pro_bridge/results/00000000-0000-4000-8000-000000000000.json",
+    ".pro_bridge/reports/00000000-0000-4000-8000-000000000000.md"
+  ],
+  "baseline_sha": "0123456789abcdef0123456789abcdef01234567",
+  "branch": "test/pro-result-00000000",
+  "allow_pr": false,
+  "result_repository": "exampleowner/example-repo",
+  "code_write_permission": false,
+  "code_branch": null,
+  "code_paths": [],
+  "requested_effort": "UI_SELECTION_REQUIRED"
+}

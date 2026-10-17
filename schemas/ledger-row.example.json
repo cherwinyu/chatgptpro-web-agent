@@ -1,0 +1,16 @@
+{
+  "task_id": "00000000-0000-4000-8000-000000000000",
+  "state": "PREPARED",
+  "mode": "read_only",
+  "send_attempts": 0,
+  "delivery_guarantee": "at_most_once_local_entitlement_not_exactly_once",
+  "review_approved": false,
+  "review_verdict": null,
+  "delivery_integrity": null,
+  "evidence_origin": null,
+  "pr_presence": "NOT_VERIFIED",
+  "automatic_high_risk_continue": false,
+  "code_write_permission": false,
+  "source_repository": "exampleowner/example-repo",
+  "branch": "test/pro-result-00000000"
+}

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bounded-handoff:permission-preview:1",
+  "title": "Local permission preview (not the share export schema)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "command_succeeded",
+    "send_authorized",
+    "ledger_mutated",
+    "network_attempted",
+    "review_approved",
+    "do_not_resend"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "command": {
+      "const": "preview-permissions"
+    },
+    "command_succeeded": {
+      "type": "boolean"
+    },
+    "send_authorized": {
+      "const": false
+    },
+    "ledger_mutated": {
+      "const": false
+    },
+    "network_attempted": {
+      "const": false
+    },
+    "review_approved": {
+      "const": false
+    },
+    "do_not_resend": {
+      "const": true
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "request_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "read_targets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "result_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "result_writer": {
+      "const": "EXTERNAL_WRITER_NOT_VERIFIED"
+    },
+    "error": {
+      "const": "permission_preview_refused"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "command_succeeded": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "task_id",
+          "request_sha256",
+          "input_binding",
+          "state",
+          "read_targets",
+          "result_paths",
+          "result_writer"
+        ]
+      }
+    }
+  ]
+}

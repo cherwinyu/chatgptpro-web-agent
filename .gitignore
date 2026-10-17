@@ -1,0 +1,19 @@
+# Local task state. Never commit a live ledger.
+.pro_bridge/
+**/ledger.json
+**/ledger.lock
+
+# Local overrides
+.env
+*.local.json
+*.local.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor and OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,15 @@
+{
+  "mode": "CHAT",
+  "logged_in": true,
+  "permission_confirmed": true,
+  "locked": false,
+  "selection_unambiguous": true,
+  "control_kind": "slider",
+  "observed_at": 0,
+  "evidence_ref": "SYNTHETIC_NOT_LIVE_replace_with_fresh_authorized_observation",
+  "steps": [
+    {"model_label": "Observed Model", "effort_label": "Medium", "value": -10},
+    {"model_label": "Observed Model", "effort_label": "High", "value": 7},
+    {"model_label": "Observed Model", "effort_label": "Pro", "value": 11.5}
+  ]
+}

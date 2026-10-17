@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "name": "research-handoff-kit-private-public-review",
+  "protocol_version": 2,
+  "publication_authorized": false,
+  "current_supported_platform": "Windows / Python 3.12 / Git >=2.32",
+  "capabilities": [
+    {
+      "id": "offline-demo",
+      "status": "OFFLINE_ENTRYPOINT_PRESENT",
+      "entrypoint": "adapters/generic/run_bridge.py demo --json",
+      "limitations": [
+        "Only exact-head CI can validate this clean-root snapshot, not hosted access",
+        "No actual hosted service access"
+      ]
+    },
+    {
+      "id": "permission-preview",
+      "status": "LOCAL_READ_ONLY_TESTED",
+      "entrypoint": "adapters/generic/run_bridge.py preview-permissions --manifest schemas/manifest.example.json --lang en --json",
+      "limitations": [
+        "No send entitlement or permission to browse"
+      ]
+    },
+    {
+      "id": "git-result-verification",
+      "status": "IMPLEMENTED",
+      "entrypoint": "tools/pro_bridge/cli.py verify",
+      "limitations": [
+        "Actual hosted delivery and external writer not certified"
+      ]
+    }
+  ],
+  "model_or_fee_claim": "NOT_OBSERVABLE"
+}

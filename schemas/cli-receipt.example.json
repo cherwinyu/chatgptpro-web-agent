@@ -1,0 +1,29 @@
+{
+  "task_id": "00000000-0000-4000-8000-000000000000",
+  "request_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "source_repository": "exampleowner/example-repo",
+  "baseline_sha": "0123456789abcdef0123456789abcdef01234567",
+  "branch": "test/pro-result-00000000",
+  "ledger_id": "<sha256 of the resolved ledger.json path>",
+  "resolved_ledger_path": "C:\\example\\disposable-ledger\\ledger.json",
+  "receipt": {
+    "task_id": "00000000-0000-4000-8000-000000000000",
+    "request_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "source_repository": "exampleowner/example-repo",
+    "baseline_sha": "0123456789abcdef0123456789abcdef01234567",
+    "branch": "test/pro-result-00000000",
+    "ledger_id": "<sha256 of the resolved ledger.json path>"
+  },
+  "deadline_at": 1700003600,
+  "host_wait": {
+    "owner": "calling_agent",
+    "bounded_wait_required": true,
+    "on_wait_budget_exhausted": "return_receipt_and_resume_same_task",
+    "on_task_deadline": "stop_waiting_no_resend",
+    "ui_completion_is_delivery": false,
+    "automatic_retry": false
+  },
+  "state": "PREPARED",
+  "browser_send_allowed": true,
+  "do_not_resend": false
+}
