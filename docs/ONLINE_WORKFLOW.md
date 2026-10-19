@@ -85,9 +85,12 @@ if (outcome.status === 'COLLECTED') {
 ```
 
 `offloadTask` reads the model menu once, prepares one receipt, claims one send,
-then rechecks the page **without** opening the menu again. Re-opening the menu
-after the claim can fail and consume the only send without a click; pass a
-read-only `recheck` if you call `sendOnce` yourself. `SEND_CLICKED` means only
+then rechecks the closed model control without opening the menu again.
+Re-opening the menu after the claim can fail and consume the only send without
+a click. The recheck does not reuse the labels read before the claim. The closed
+control must show two visible lines, model then effort. If it does not, the
+helper does not type or click; an existing claim stays `SUBMISSION_UNKNOWN`.
+Pass that same read-only `recheck` if you call `sendOnce` yourself. `SEND_CLICKED` means only
 that the click returned. It does **not** mean ChatGPT accepted or finished the
 task. The page can briefly show a temporary conversation URL before its final
 `/c/<id>` URL. `waitAndCollect` records `session_url` only after that URL has
@@ -120,8 +123,12 @@ after observing the matching turn in the bound tab. Once submitted, a changed
 conversation URL is refused.
 
 No timeout, missing tab, login failure, unknown layout or lost click response
-permits a resend, replacement task or deadline extension. `HOST_TIMEOUT` ends
-one bounded wait; it does not expire or recreate the task. An original task
+permits a resend, replacement task or deadline extension. `budgetMs` starts
+after the ledger status read and bounds each browser URL or page read. A read
+that does not return ends that wait; the helper does not start another read.
+The underlying host call is not aborted when the browser API cannot cancel it.
+`HOST_TIMEOUT` ends one bounded wait; it does not expire or recreate the task.
+An original task
 deadline, BLOCKED or TIMEOUT cannot be overridden by collection. A changed reply
 cannot overwrite an already collected response. Attachment-only delivery can be
 detected as page completion but is not yet a text-collection acceptance claim.
@@ -157,7 +164,9 @@ digest above identifies the earlier live collection. It was compared with the
 runtime digest of the tree that already contained the first helper and did not
 match; later edits move the digest again. `capability-manifest.json` sets
 `certifies_current_tree` to false. That observation does not certify this
-checkout.
+checkout. Later fixes to the wait budget, closed-control recheck, evidence
+paths and URL-read bounds are covered by offline fixtures. They are not a new
+live send, and this checkout still has no online acceptance of its own.
 
 An earlier Chrome attempt stayed submission-unknown. The user reported closing
 external Chrome and explicitly requested a separate in-app attempt. Its receipt

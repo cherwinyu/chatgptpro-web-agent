@@ -61,7 +61,13 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 - `PREPARED_NOT_SENT` means the receipt exists and nothing was claimed. Recovery will not send it. Call `sendPrepared` once, then `recoverTask`.
 - `SUBMISSION_UNKNOWN`, `HOST_TIMEOUT`, `TASK_DEADLINE`, `LOGIN_REQUIRED`, `PAGE_ERROR`, `TAB_GONE`, `TARGET_CHANGED`, `RESPONSE_CHANGED`, and `COLLECTION_REFUSED` all set `doNotResend: true`.
 
-`doNotResend: true` means the next step is to read the original receipt or wait on that same task. It does not mean you should prepare a replacement, click send again, or extend `deadline_at`. A host wait budget (`budgetMs`) only stops this wait. It does not change the task deadline stored at prepare time.
+`doNotResend: true` means the next step is to read the original receipt or wait on that same task. It does not mean you should prepare a replacement, click send again, or extend `deadline_at`.
+
+`budgetMs` bounds browser URL reads, page reads, and the pauses between them. It starts after the ledger status read, so time spent opening the local ledger is not reported as `HOST_TIMEOUT` before the tab is checked. Each `tab.url()` and page read is limited by the time still left in that budget, the original `deadline_at`, and cancellation. When that time is gone, the helper does not start another read, does not click send, and does not change the deadline. If the host browser call cannot be cancelled, the call may continue in the background after this wait has already stopped.
+
+After the send claim, the helper reads the closed model control and does not click it. That control must show exactly two visible lines, model then effort. Those lines are the new observation. Labels saved before the claim are not reused. If both lines are not visible, the helper does not type or click. A claim that already exists stays `SUBMISSION_UNKNOWN`.
+
+The evidence directory must be strictly outside the checkout on both the path you pass and the path after resolving symlinks or Windows junctions. The checkout itself, a subdirectory, and a link that lands inside the checkout are refused. A sibling whose name only shares a prefix is outside. The ledger must be inside the evidence directory on both paths. One ledger still belongs to one source repository.
 
 ## Body text and Git delivery
 
@@ -74,7 +80,7 @@ Use `browser_response` for a self-contained analysis. Use Git delivery only when
 
 ## Accepted and not accepted
 
-Accepted by offline tests: one claim, one click, stable conversation URL before the session is recorded, original-receipt recovery, hash-checked bounded read, refusal to mix repositories in one ledger, and refusal to resend after an uncertain click, login wall, missing tab, timeout, deadline, identity mismatch or changed body.
+Covered by offline tests: one claim, one click, stable conversation URL before the session is recorded, original-receipt recovery, hash-checked bounded read, refusal to mix repositories in one ledger, refusal to treat the checkout or a link into it as the evidence directory, a post-claim recheck that uses the closed control's visible lines, a browser wait budget that does not include the ledger status read, a URL or page read that stops at the remaining budget, and refusal to resend after an uncertain click, login wall, missing tab, timeout, deadline, identity mismatch or changed body. Offline tests do not log in or send to ChatGPT.
 
 The 2026-10-19 Codex in-app-browser run is historical. Its runtime digest is recorded in `capability-manifest.json`. That digest does not match later source trees, so the run does not certify this checkout, other hosts, other locales, or a consumer project.
 

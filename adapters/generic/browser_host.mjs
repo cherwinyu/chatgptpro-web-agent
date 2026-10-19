@@ -171,7 +171,11 @@ export class BrowserSession {
     validateRequest(request);
     if (!finite(budgetMs) || budgetMs <= 0 || budgetMs > 3600000 ||
         !finite(deadlineAt) || !finite(intervalMs) || intervalMs < 1000 || intervalMs > 60000) fail('INVALID_WAIT_BUDGET');
-    const end = performance.now() + Math.min(budgetMs, Math.max(0, deadlineAt - Date.now()));
+    const deadlineWindow = Math.max(0, deadlineAt - Date.now());
+    // Chosen once. Comparing the two clocks again after the timer fires can
+    // call a deadline-sized wait a host timeout when performance.now runs ahead.
+    const limitedByDeadline = deadlineWindow <= budgetMs;
+    const end = performance.now() + Math.min(budgetMs, deadlineWindow);
     const tracker = new CompletionTracker({ quietMs });
     let lastStatus = 'UNKNOWN', checks = 0;
     const result = status => ({ status, lastStatus, checks, binding: this.binding,
@@ -183,12 +187,10 @@ export class BrowserSession {
       const remaining = Math.min(untilBudget, untilDeadline);
       let snapshot;
       try {
-        snapshot = await bounded(() => this.observe(request, { timeoutMs: Math.min(10000, remaining) }), remaining, signal);
+        snapshot = await boundOperation(() => this.observe(request, { timeoutMs: Math.min(10000, remaining) }), remaining, signal);
       } catch (error) {
-        // A timer can fire slightly before the sampled deadline. When this read
-        // was already capped by the task deadline, that timeout is the deadline.
         if (error instanceof HostError && error.code === 'HOST_TIMEOUT' &&
-            (Date.now() >= deadlineAt || untilDeadline <= untilBudget)) {
+            (Date.now() >= deadlineAt || limitedByDeadline)) {
           return result('TASK_DEADLINE');
         }
         return result(error instanceof HostError ? error.code : 'BROWSER_UNAVAILABLE');
@@ -205,7 +207,7 @@ export class BrowserSession {
         end - performance.now(), deadlineAt - Date.now());
       if (delay > 0) await pause(delay, signal);
     }
-    return result(Date.now() >= deadlineAt ? 'TASK_DEADLINE' : 'HOST_TIMEOUT');
+    return result(Date.now() >= deadlineAt || limitedByDeadline ? 'TASK_DEADLINE' : 'HOST_TIMEOUT');
   }
 }
 
@@ -217,7 +219,11 @@ function pause(ms, signal) {
     if (signal?.aborted) done();
   });
 }
-function bounded(operation, ms, signal) {
+/** Race one browser call against the remaining time and cancel signal.
+ * Losing the race does not abort the underlying call when the host API cannot
+ * cancel it. Callers must not start another read after this returns.
+ */
+export function boundOperation(operation, ms, signal) {
   return new Promise((resolve, reject) => {
     const cancel = () => finish(reject, new HostError('CANCELLED'));
     const timer = setTimeout(() => finish(reject, new HostError('HOST_TIMEOUT')), Math.ceil(ms));

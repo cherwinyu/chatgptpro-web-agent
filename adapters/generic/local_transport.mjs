@@ -1,20 +1,61 @@
 /** Local file/process transport. No browser, network, credentials or shell. */
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { writeFileSync, readFileSync, existsSync, lstatSync, realpathSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
-function outside(parent, child) {
-  const fromParent = relative(resolve(parent), resolve(child));
-  return fromParent === '' || fromParent.startsWith('..') || fromParent.includes(':');
+/** 'equal', 'inside', or 'outside' after resolve, without following links.
+ * An equal path is not outside. A same-prefix sibling is outside. A different
+ * Windows drive is outside because the relative result is absolute.
+ */
+export function pathRelation(parent, child, pathImpl = path) {
+  if (typeof parent !== 'string' || typeof child !== 'string' || !parent || !child) throw Error('EXPLICIT_PATHS_REQUIRED');
+  const rel = pathImpl.relative(pathImpl.resolve(parent), pathImpl.resolve(child));
+  if (rel === '') return 'equal';
+  if (pathImpl.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return 'outside';
+  return 'inside';
+}
+
+function canonicalPath(input) {
+  let current = resolve(input);
+  const suffix = [];
+  while (true) {
+    let info;
+    try { info = lstatSync(current); }
+    catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      suffix.push(basename(current));
+      current = parent;
+      continue;
+    }
+    if (info.isSymbolicLink()) current = realpathSync(current);
+    else break;
+  }
+  let real = realpathSync(current);
+  for (let index = suffix.length - 1; index >= 0; index -= 1) real = join(real, suffix[index]);
+  return real;
+}
+
+function canonical(input, code) {
+  try { return canonicalPath(input); }
+  catch { throw Error(code); }
 }
 
 export function localTransport({ root, ledger, evidenceDirectory, receiptPath, python = 'py', pythonArgs = ['-3.12'] }) {
   if (![root, ledger, evidenceDirectory, receiptPath].every(x => typeof x === 'string' && x.length)) throw Error('EXPLICIT_PATHS_REQUIRED');
-  // Evidence stays outside this checkout. The ledger stays inside that evidence
-  // directory so two projects cannot silently share one task file.
-  if (!outside(root, evidenceDirectory)) throw Error('EVIDENCE_INSIDE_SOURCE');
-  if (outside(evidenceDirectory, ledger)) throw Error('LEDGER_MUST_BE_INSIDE_EVIDENCE');
+  // The written path and the real path must both put evidence strictly outside
+  // this checkout. Equal paths, descendants, and links back into the checkout
+  // are refused. realpath follows a Windows junction the same way as a symlink.
+  if (pathRelation(root, evidenceDirectory) !== 'outside') throw Error('EVIDENCE_INSIDE_SOURCE');
+  const rootReal = canonical(root, 'SOURCE_PATH_UNRESOLVED');
+  const evidenceReal = canonical(evidenceDirectory, 'EVIDENCE_PATH_UNRESOLVED');
+  if (pathRelation(rootReal, evidenceReal) !== 'outside') throw Error('EVIDENCE_INSIDE_SOURCE');
+  if (pathRelation(evidenceDirectory, ledger) !== 'inside') throw Error('LEDGER_MUST_BE_INSIDE_EVIDENCE');
+  const ledgerReal = canonical(ledger, 'LEDGER_PATH_UNRESOLVED');
+  if (pathRelation(evidenceReal, ledgerReal) !== 'inside') throw Error('LEDGER_MUST_BE_INSIDE_EVIDENCE');
   const run = async (command, args = [], files = {}) => {
     const extra = [];
     for (const [kind, value] of Object.entries(files)) {

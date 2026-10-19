@@ -1,16 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sendOnce } from '../../adapters/generic/online_host.mjs';
-import { localTransport, prepareOnline, loadPrepared, readCollected } from '../../adapters/generic/local_transport.mjs';
+import { localTransport, pathRelation, prepareOnline, loadPrepared, readCollected } from '../../adapters/generic/local_transport.mjs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, mkdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 as win32Path } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readChatGPTPage } from '../../adapters/generic/browser_host.mjs';
-import { offloadTask, recoverTask, sendPrepared, waitAndCollect, readOnlyNewChat, CHINESE_ORDINARY_CHAT } from '../../adapters/generic/online_host.mjs';
-
+import { offloadTask, recoverTask, sendPrepared, waitAndCollect, readOnlyNewChat, observeNewChat, selectionLinesFromTexts, CHINESE_ORDINARY_CHAT } from '../../adapters/generic/online_host.mjs';
 function fixture() {
   const events = [];
   const target = { tab_id: 'tab', mode: 'CHAT', model_label: 'Observed', effort_label: 'Observed' };
@@ -220,15 +219,25 @@ test('submitted recovery refuses a different conversation without collecting', a
   assert.deepEqual(commands.map(item => item[0]), ['status']);
 });
 
-test('read-only recheck reports the page without opening a model menu', async () => {
+test('read-only recheck reads the closed control and does not reuse cached labels', async () => {
   let evaluations = 0;
-  const tab = { id: 'tab', playwright: { evaluate: async () => { evaluations += 1; return { url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false }; } } };
-  const fresh = await readOnlyNewChat(tab, 'browser', { tab_id: 'tab', browser_context: 'browser', model_label: 'Observed', effort_label: 'Pro' });
-  assert.equal(fresh.model_label, 'Observed');
+  let clicks = 0;
+  const ready = lines => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false, selection_lines: lines });
+  const tab = { id: 'tab', playwright: {
+    evaluate: async () => { evaluations += 1; return ready(['Live model', 'Live effort']); },
+    getByRole: () => { clicks += 1; return { click: async () => { clicks += 1; } }; },
+  } };
+  const binding = { tab_id: 'tab', browser_context: 'browser', model_label: 'Cached model', effort_label: 'Cached effort' };
+  const fresh = await readOnlyNewChat(tab, 'browser', binding);
+  assert.equal(fresh.model_label, 'Live model');
+  assert.equal(fresh.effort_label, 'Live effort');
   assert.equal(evaluations, 1);
+  assert.equal(clicks, 0);
   assert.equal(CHINESE_ORDINARY_CHAT.composer.includes('textbox'), true);
-  tab.playwright.evaluate = async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: false, login: true });
-  await assert.rejects(readOnlyNewChat(tab, 'browser', { tab_id: 'tab', browser_context: 'browser', model_label: 'Observed', effort_label: 'Pro' }), /PAGE_NOT_READY/);
+  tab.playwright.evaluate = async () => ready(['选择 ChatGPT 模型']);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', binding), /SELECTION_NOT_OBSERVABLE/);
+  tab.playwright.evaluate = async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: false, login: true, selection_lines: ['Live model', 'Live effort'] });
+  await assert.rejects(readOnlyNewChat(tab, 'browser', binding), /PAGE_NOT_READY/);
 });
 
 function hostObservation(tabId, browserId) {
@@ -261,7 +270,8 @@ test('offloadTask returns one bounded reply and recovery repeats its hash', { ti
   const tab = { id: 'synthetic-tab', url: async () => FINAL_URL, playwright: {
     evaluate: async fn => fn === readChatGPTPage
       ? { url: FINAL_URL, status: 'FINAL_CANDIDATE', turnId: 'turn', responseIds: 'reply', fingerprint: 'abc', contentLength: answer.length, text: answer }
-      : { url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false },
+      : { url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
+        selection_lines: [observation.model_label, observation.effort_label] },
     locator: () => ({ fill: async () => {}, click: async () => { clicks += 1; } }),
   } };
   const result = await offloadTask({ tab, browserId, run, evidenceDirectory, repository: 'example/repo',
@@ -316,7 +326,8 @@ test('an unsent prepare is not sent by recovery, and a lost click is not repeate
   assert.equal(pending.doNotResend, false);
   let clicks = 0;
   const tab = { id: 'synthetic-tab', playwright: {
-    evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false }),
+    evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
+      selection_lines: [observation.model_label, observation.effort_label] }),
     locator: () => ({ fill: async () => {}, click: async () => { clicks += 1; throw Error('lost click'); } }),
   } };
   const sent = await sendPrepared({ tab, browserId, run, observe: async () => observation, composer: 'box', sendButton: 'send' });
@@ -346,4 +357,158 @@ test('a model that is not actually selected never prepares or sends', async t =>
     composer: 'box', sendButton: 'send' }), /REQUESTED_SELECTION_NOT_VISIBLE/);
   assert.equal(existsSync(receiptPath), false);
   assert.equal(existsSync(join(evidenceDirectory, 'ledger', 'ledger.json')), false);
+});
+
+test('closed-control lines keep the model and effort and drop the instruction', () => {
+  assert.deepEqual(selectionLinesFromTexts('选择 ChatGPT 模型', ['GPT-6', 'Pro'], ''), ['GPT-6', 'Pro']);
+  assert.deepEqual(selectionLinesFromTexts('选择 ChatGPT 模型', ['选择 ChatGPT 模型'], 'GPT-6\nPro'), ['GPT-6', 'Pro']);
+  assert.deepEqual(selectionLinesFromTexts('选择 ChatGPT 模型', [], '选择 ChatGPT 模型'), []);
+  assert.deepEqual(selectionLinesFromTexts('选择 ChatGPT 模型', ['GPT-6 Pro'], ''), ['GPT-6 Pro']);
+});
+
+test('a changed closed-control selection after the claim does not type or click', async () => {
+  const f = fixture();
+  let writes = 0;
+  f.tab.playwright.locator = () => ({ fill: async () => { writes += 1; }, click: async () => { writes += 1; } });
+  f.tab.playwright.evaluate = async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
+    selection_lines: ['Other model', 'Low'] });
+  f.recheck = () => readOnlyNewChat(f.tab, 'browser', { tab_id: 'tab', browser_context: 'browser' });
+  await assert.rejects(sendOnce(f), /TARGET_CHANGED/);
+  assert.equal(writes, 0);
+  assert.deepEqual(f.events.map(item => item[0]), ['status', 'prompt', 'claim', 'mark-unknown']);
+});
+
+test('menu observation refuses a closed control that does not show both labels', async () => {
+  const clicks = [];
+  const tabFor = lines => ({ id: 'tab', playwright: {
+    getByRole: (role, options) => {
+      clicks.push(role + ':' + (options?.name ?? ''));
+      if (role === 'menuitemradio') return { all: async () => [{ getAttribute: async () => 'true', innerText: async () => 'GPT-6', click: async () => clicks.push('radio') }] };
+      return { click: async () => clicks.push('click:' + options?.name), innerText: async () => 'Pro', press: async () => clicks.push('escape') };
+    },
+    evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false, selection_lines: lines }),
+  } });
+  await assert.rejects(observeNewChat(tabFor(['GPT-6']), 'browser'), /SELECTION_NOT_OBSERVABLE/);
+  assert.equal(clicks.includes('click:发送'), false);
+  const observed = await observeNewChat(tabFor(['GPT-6', 'Pro']), 'browser');
+  assert.equal(observed.model_label, 'GPT-6');
+  assert.equal(observed.effort_label, 'Pro');
+  assert.equal(clicks.includes('click:发送'), false);
+});
+
+test('a slow ledger read does not turn a missing tab into a host timeout', async () => {
+  const run = async command => {
+    assert.equal(command, 'status');
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return { code: 0, value: statusValue() };
+  };
+  run.receiptPath = 'original-receipt';
+  let reads = 0;
+  const outcome = await waitAndCollect({
+    tab: { id: 'tab', url: async () => { reads += 1; throw Error('gone'); } },
+    prepared: preparedTarget(), run, budgetMs: 50, intervalMs: 1000, urlQuietMs: 0, quietMs: 1000,
+  });
+  assert.equal(outcome.status, 'TAB_GONE');
+  assert.equal(outcome.doNotResend, true);
+  assert.equal(reads, 1);
+});
+
+test('a conversation URL read that never returns is not started again', async () => {
+  let reads = 0;
+  const { run, commands } = scriptedRun();
+  const hung = await waitAndCollect({
+    tab: { id: 'tab', url: () => { reads += 1; return new Promise(() => {}); } },
+    prepared: preparedTarget(), run, budgetMs: 80, intervalMs: 1000, urlQuietMs: 0, quietMs: 1000,
+  });
+  assert.equal(hung.status, 'HOST_TIMEOUT');
+  assert.equal(hung.doNotResend, true);
+  assert.equal(reads, 1);
+  assert.deepEqual(commands.map(item => item[0]), ['status']);
+  reads = 0;
+  const deadline = scriptedRun(statusValue({ deadline_at: Date.now() / 1000 + 1.5 }));
+  const expired = await waitAndCollect({
+    tab: { id: 'tab', url: () => { reads += 1; return new Promise(() => {}); } },
+    prepared: preparedTarget(), run: deadline.run, budgetMs: 5000, intervalMs: 1000, urlQuietMs: 0, quietMs: 1000,
+  });
+  assert.equal(expired.status, 'TASK_DEADLINE');
+  assert.equal(expired.doNotResend, true);
+  assert.equal(reads, 1);
+  const controller = new AbortController();
+  controller.abort();
+  reads = 0;
+  const cancelled = await waitAndCollect({
+    tab: { id: 'tab', url: () => { reads += 1; return FINAL_URL; } },
+    prepared: preparedTarget(), run, budgetMs: 5000, intervalMs: 1000, urlQuietMs: 0, quietMs: 1000,
+    signal: controller.signal,
+  });
+  assert.equal(cancelled.status, 'CANCELLED');
+  assert.equal(reads, 0);
+});
+
+test('the final page read stops at the remaining budget and does not collect', { timeout: 10000 }, async () => {
+  let reads = 0;
+  const { run, commands } = scriptedRun();
+  const outcome = await waitAndCollect({
+    tab: scriptedTab({
+      url: async () => FINAL_URL,
+      evaluate: async () => {
+        reads += 1;
+        if (reads < 3) return finalSnap();
+        return new Promise(() => {});
+      },
+    }),
+    prepared: preparedTarget(), run, budgetMs: 4000, intervalMs: 1000, urlQuietMs: 0, quietMs: 1000,
+  });
+  assert.equal(outcome.status, 'HOST_TIMEOUT');
+  assert.equal(outcome.doNotResend, true);
+  assert.equal(reads, 3);
+  assert.deepEqual(commands.map(item => item[0]), ['status']);
+});
+
+test('a passed deadline does not start a closed-control read', async () => {
+  let reads = 0;
+  const tab = { id: 'tab', playwright: { evaluate: async () => { reads += 1; return {}; } } };
+  await assert.rejects(readOnlyNewChat(tab, 'browser', { tab_id: 'tab', browser_context: 'browser' },
+    { deadlineAt: Date.now() - 1000, budgetMs: 5000 }), /TASK_DEADLINE/);
+  assert.equal(reads, 0);
+});
+
+test('evidence isolation rejects equal paths, prefixes, and links into the checkout', t => {
+  const root = mkdtempSync(join(tmpdir(), 'web-agent-root-'));
+  const evidence = mkdtempSync(join(tmpdir(), 'web-agent-evidence-'));
+  const prefixed = root + '-evidence';
+  mkdirSync(prefixed);
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(evidence, { recursive: true, force: true });
+    rmSync(prefixed, { recursive: true, force: true });
+  });
+  const open = (evidenceDirectory, ledger) => localTransport({
+    root, evidenceDirectory, ledger, receiptPath: join(evidenceDirectory, 'prepare.json'),
+  });
+  assert.throws(() => open(root, join(root, 'ledger')), /EVIDENCE_INSIDE_SOURCE/);
+  assert.throws(() => open(join(root, 'nested'), join(root, 'nested', 'ledger')), /EVIDENCE_INSIDE_SOURCE/);
+  assert.throws(() => open(evidence, evidence), /LEDGER_MUST_BE_INSIDE_EVIDENCE/);
+  assert.equal(pathRelation('C:\\Repo', 'C:\\Repo', win32Path), 'equal');
+  assert.equal(pathRelation('C:\\Repo', 'C:\\Repo\\evidence', win32Path), 'inside');
+  assert.equal(pathRelation('C:\\Repo', 'c:\\repo\\evidence', win32Path), 'inside');
+  assert.equal(pathRelation('C:\\Repo', 'C:\\Repo-evidence', win32Path), 'outside');
+  assert.equal(pathRelation('C:\\Repo', 'D:\\evidence', win32Path), 'outside');
+  assert.equal(pathRelation('C:\\Repo', 'C:\\', win32Path), 'outside');
+  assert.equal(pathRelation('C:\\repo', 'C:\\repo\\..hidden', win32Path), 'inside');
+  assert.equal(pathRelation('/work/repo', '/work/repo/foo:bar'), 'inside');
+  open(prefixed, join(prefixed, 'ledger'));
+  open(evidence, join(evidence, 'ledger'));
+  const hiddenRoot = join(evidence, 'hidden-root');
+  symlinkSync(root, hiddenRoot, 'dir');
+  assert.throws(() => open(hiddenRoot, join(hiddenRoot, 'ledger')), /EVIDENCE_INSIDE_SOURCE/);
+  const linkedOut = join(root, 'linked-out');
+  symlinkSync(evidence, linkedOut, 'dir');
+  assert.throws(() => open(linkedOut, join(linkedOut, 'ledger')), /EVIDENCE_INSIDE_SOURCE/);
+  mkdirSync(join(root, 'secret'));
+  const linkedLedger = join(evidence, 'linked-ledger');
+  symlinkSync(join(root, 'secret'), linkedLedger, 'dir');
+  assert.throws(() => open(evidence, linkedLedger), /LEDGER_MUST_BE_INSIDE_EVIDENCE/);
+  symlinkSync(join(root, 'missing-target'), join(evidence, 'broken-ledger'), 'dir');
+  assert.throws(() => open(evidence, join(evidence, 'broken-ledger')), /LEDGER_PATH_UNRESOLVED/);
 });
