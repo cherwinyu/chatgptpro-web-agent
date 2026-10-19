@@ -8,8 +8,9 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, mkdirSync
 import { tmpdir } from 'node:os';
 import { join, win32 as win32Path } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import { readChatGPTPage } from '../../adapters/generic/browser_host.mjs';
-import { offloadTask, recoverTask, sendPrepared, waitAndCollect, readOnlyNewChat, observeNewChat, selectionLinesFromTexts, CHINESE_ORDINARY_CHAT } from '../../adapters/generic/online_host.mjs';
+import { offloadTask, recoverTask, sendPrepared, waitAndCollect, readOnlyNewChat, readStandaloneChat, observeNewChat, selectionLinesFromTexts, CHINESE_ORDINARY_CHAT } from '../../adapters/generic/online_host.mjs';
 function fixture() {
   const events = [];
   const target = { tab_id: 'tab', mode: 'CHAT', model_label: 'Observed', effort_label: 'Observed' };
@@ -357,6 +358,85 @@ test('a model that is not actually selected never prepares or sends', async t =>
     composer: 'box', sendButton: 'send' }), /REQUESTED_SELECTION_NOT_VISIBLE/);
   assert.equal(existsSync(receiptPath), false);
   assert.equal(existsSync(join(evidenceDirectory, 'ledger', 'ledger.json')), false);
+});
+
+function closedControlPage({ modelLines = ['GPT-6', 'Pro'], pickers = 1, hideLine = false, flatText = '' } = {}) {
+  const element = (attrs, children = []) => {
+    const node = {
+      children,
+      get childElementCount() { return children.length; },
+      get textContent() { return children.length ? children.map(child => child.textContent).join('') : (attrs.text ?? ''); },
+      get innerText() { return children.length ? children.map(child => child.innerText).filter(Boolean).join('\n') : (attrs.text ?? ''); },
+      getAttribute: name => attrs[name] ?? null,
+      closest: () => attrs.hidden ? node : null,
+      getClientRects: () => attrs.hidden ? [] : [1],
+      querySelectorAll(selector) {
+        const found = [];
+        const walk = current => {
+          if (selector === '*' || (selector === 'button' && current.tag === 'button')) found.push(current);
+          for (const child of current.children) walk(child);
+        };
+        for (const child of children) walk(child);
+        return found;
+      },
+    };
+    node.tag = attrs.tag ?? 'div';
+    return node;
+  };
+  const buttons = [
+    element({ tag: 'button', text: '聊天', 'aria-pressed': 'true' }),
+    element({ tag: 'button', text: '工作', 'aria-pressed': 'false' }),
+  ];
+  for (let index = 0; index < pickers; index += 1) {
+    const leaves = flatText ? [] : modelLines.map((text, line) => element({ tag: 'span', text, hidden: hideLine && line === modelLines.length - 1 }));
+    buttons.push(element({ tag: 'button', 'aria-label': '选择 ChatGPT 模型', text: flatText }, leaves));
+  }
+  const editor = element({ tag: 'div', text: '', role: 'textbox', contenteditable: 'true' });
+  return {
+    querySelectorAll: selector => selector === 'button' ? buttons : [],
+    querySelector: selector => selector === '[role="textbox"][contenteditable="true"]' ? editor : null,
+  };
+}
+
+/** Run the serialized page reader. The realm has a synthetic DOM only. */
+function evaluateSerialized(fn, document) {
+  const realm = vm.createContext({ document, location: { href: 'https://chatgpt.com/' } });
+  assert.equal('selectionLinesFromTexts' in realm, false);
+  // Structured clone into this realm. Cross-realm strings are not reference-equal.
+  return JSON.parse(JSON.stringify(vm.runInContext(`(${fn.toString()})()`, realm)));
+}
+
+test('serialized new-chat reader sees two visible lines and does not keep saved labels', async () => {
+  assert.equal(readStandaloneChat.toString().includes('selectionLinesFromTexts'), false);
+  const seen = evaluateSerialized(readStandaloneChat, closedControlPage());
+  assert.deepEqual(seen.selection_lines, ['GPT-6', 'Pro']);
+  assert.deepEqual(evaluateSerialized(readStandaloneChat, closedControlPage({ flatText: 'GPT-6\nPro' })).selection_lines, ['GPT-6', 'Pro']);
+  assert.equal(seen.chat, true);
+  assert.equal(seen.work, true);
+  assert.equal(seen.ready, true);
+  assert.equal(seen.login, false);
+  const tab = { id: 'tab', playwright: { evaluate: async fn => evaluateSerialized(fn, closedControlPage()) } };
+  const fresh = await readOnlyNewChat(tab, 'browser', {
+    tab_id: 'tab', browser_context: 'browser', model_label: 'Cached model', effort_label: 'Cached effort',
+  });
+  assert.equal(fresh.model_label, 'GPT-6');
+  assert.equal(fresh.effort_label, 'Pro');
+  const incomplete = [
+    closedControlPage({ modelLines: ['GPT-6'] }),
+    closedControlPage({ modelLines: ['GPT-6', 'Pro', 'Extra'] }),
+    closedControlPage({ modelLines: ['选择 ChatGPT 模型'] }),
+    closedControlPage({ pickers: 2 }),
+    closedControlPage({ hideLine: true }),
+  ];
+  for (const document of incomplete) {
+    const page = evaluateSerialized(readStandaloneChat, document);
+    assert.notDeepEqual(page.selection_lines, ['Cached model', 'Cached effort']);
+    assert.notEqual(page.selection_lines.length, 2);
+    const refused = { id: 'tab', playwright: { evaluate: async fn => evaluateSerialized(fn, document) } };
+    await assert.rejects(readOnlyNewChat(refused, 'browser', {
+      tab_id: 'tab', browser_context: 'browser', model_label: 'Cached model', effort_label: 'Cached effort',
+    }), /SELECTION_NOT_OBSERVABLE/);
+  }
 });
 
 test('closed-control lines keep the model and effort and drop the instruction', () => {

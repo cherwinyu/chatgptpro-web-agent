@@ -20,8 +20,8 @@ const TARGET_FIELDS = ['mode', 'project_id', 'conversation_id', 'browser_context
 
 const DOM_READ_CAP_MS = 10000;
 
-/** Visible lines on the closed model control. The instructional accessible name
- * is not a model or effort label. Two lines means model, then effort.
+/** Host-side twin of the line parser. Direct tests may call it. The page reader
+ * must not: evaluate serializes only readStandaloneChat's own source.
  */
 export function selectionLinesFromTexts(instruction, leafTexts, innerText) {
   const lines = [];
@@ -35,8 +35,22 @@ export function selectionLinesFromTexts(instruction, leafTexts, innerText) {
   return lines;
 }
 
-/** Read the standalone new-chat page without choosing a model or opening a menu. */
+/** Read the standalone new-chat page without choosing a model or opening a menu.
+ * Passed to tab.playwright.evaluate. The page realm does not have this module,
+ * so every helper used here is declared inside this function.
+ */
 export function readStandaloneChat() {
+  function linesFromControl(instruction, leafTexts, innerText) {
+    const lines = [];
+    const push = text => {
+      const value = String(text ?? '').replace(/\s+/g, ' ').trim();
+      if (!value || value === instruction || lines.includes(value)) return;
+      lines.push(value);
+    };
+    for (const text of leafTexts ?? []) push(text);
+    if (!lines.length) for (const text of String(innerText ?? '').split(/\n+/)) push(text);
+    return lines;
+  }
   const visible = element => !!element && !element.closest('[hidden],[aria-hidden="true"]') && element.getClientRects().length > 0;
   const buttons = [...document.querySelectorAll('button')];
   const chat = buttons.filter(e => e.textContent.trim() === '聊天');
@@ -47,7 +61,7 @@ export function readStandaloneChat() {
   let selection_lines = [];
   if (picker.length === 1) {
     const leaves = [...picker[0].querySelectorAll('*')].filter(element => element.childElementCount === 0 && visible(element));
-    selection_lines = selectionLinesFromTexts(instruction, leaves.map(element => element.textContent), picker[0].innerText);
+    selection_lines = linesFromControl(instruction, leaves.map(element => element.textContent), picker[0].innerText);
   }
   return { url: location.href,
     chat: chat.length === 1 && chat[0].getAttribute('aria-pressed') === 'true',

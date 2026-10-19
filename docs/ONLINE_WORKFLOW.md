@@ -90,7 +90,10 @@ Re-opening the menu after the claim can fail and consume the only send without
 a click. The recheck does not reuse the labels read before the claim. The closed
 control must show two visible lines, model then effort. If it does not, the
 helper does not type or click; an existing claim stays `SUBMISSION_UNKNOWN`.
-Pass that same read-only `recheck` if you call `sendOnce` yourself. `SEND_CLICKED` means only
+`readStandaloneChat` is what `evaluate` serializes into the page. Its helpers are
+declared inside that function, because the page realm does not have this module.
+The offline serialization test runs that source in a fresh realm. It is not a
+live send and does not accept this checkout. Pass that same read-only `recheck` if you call `sendOnce` yourself. `SEND_CLICKED` means only
 that the click returned. It does **not** mean ChatGPT accepted or finished the
 task. The page can briefly show a temporary conversation URL before its final
 `/c/<id>` URL. `waitAndCollect` records `session_url` only after that URL has
