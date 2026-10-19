@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
 
-**Noncommercial research preview — not approved for public release.** This repository (`cherwinyu/chatgptpro-web-agent`) is a fresh-history, allowlisted research subset, not a fork or clone of the prior internal engineering workspace. The repository name is not an OpenAI product name. It is not affiliated with or endorsed by OpenAI. Repository visibility is an owner setting; it is not a product capability, a rights clearance, or publication approval.
+**This repository is publicly available as an independent noncommercial research preview under PolyForm Noncommercial 1.0.0.** `cherwinyu/chatgptpro-web-agent` is a fresh-history, allowlisted research subset, not a fork or clone of the prior internal engineering workspace. The repository name is not an OpenAI product name. It is not affiliated with or endorsed by OpenAI. No formal versioned Release has been published. Public source availability does not imply a verified live ChatGPT integration, production readiness, OpenAI endorsement, or permission to use third-party services.
 
 ## What can be tested
 
@@ -23,7 +23,7 @@ This source preserves parts of the host-integration research interface, but **do
 
 The [PolyForm Noncommercial License 1.0.0](LICENSE) is reproduced without alteration and covers only interests the licensor actually controls. It permits certain noncommercial use, modification and redistribution subject to its conditions; it is **not** an OSI-approved open-source license. It does not grant permissions for third-party code or hosted services, and it does not mean third-party rights have been cleared. [Scope notice](docs/legal/LICENSE_SCOPE.md). The experimental *not-for-production* statement is a support recommendation, not an unannounced change to the license. This preview is not production-ready.
 
-**Publication is not approved.** This independent clean-root snapshot must pass native Windows CI on its own exact commit before any distribution decision. Component-level source rights, attribution, brand permission, and final publication approval remain separate open gates. Historical repository CI results cannot certify this snapshot. Changing repository visibility does not close those gates.
+**No formal versioned Release has been published.** Verified behavior on this independent clean-root snapshot is the Windows and Python 3.12 offline research demo. Native Windows CI on this repository's own exact commit is the engineering check for that snapshot; historical repository CI results cannot certify it. Component-level source rights, attribution, and brand permission stay separate from public source availability.
 
 ## Contributing and security
 
