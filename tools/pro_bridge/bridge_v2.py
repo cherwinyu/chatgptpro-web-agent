@@ -549,10 +549,11 @@ class Ledger:
         except OSError:
             return
 
-    def _spill(self, temporary: Path, text: str) -> bytes:
+    def _spill(self, temporary: Path, expected: bytes) -> None:
+        """Write the serialized ledger bytes. A later read of the temp file is not the baseline."""
         if temporary.is_symlink():
             raise OSError(errno.EPERM, "ledger temporary must be a regular file")
-        temporary.write_text(text, encoding="utf-8")
+        temporary.write_bytes(expected)
         try:
             with temporary.open("rb+") as stream:
                 stream.flush()
@@ -560,7 +561,14 @@ class Ledger:
         except OSError:
             self._discard_temp(temporary)
             raise
-        return temporary.read_bytes()
+        try:
+            observed = temporary.read_bytes()
+        except OSError as exc:
+            self._discard_temp(temporary)
+            raise PersistenceError("uncertain") from exc
+        if observed != expected:
+            self._discard_temp(temporary)
+            raise PersistenceError("uncertain")
 
     def _classify_replace(self, before: object, expected: bytes, exc: OSError) -> None:
         observed = _file_bytes(self.path)
@@ -572,11 +580,13 @@ class Ledger:
         raise PersistenceError("uncertain") from exc
 
     def _write(self, data: dict) -> None:
-        text = json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2)
+        expected = json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
         temporary = self.path.with_suffix(".json.tmp")
         before = _file_bytes(self.path)
         try:
-            expected = self._spill(temporary, text)
+            self._spill(temporary, expected)
+        except PersistenceError:
+            raise
         except OSError as exc:
             if before is _UNREAD:
                 raise PersistenceError("uncertain") from exc
