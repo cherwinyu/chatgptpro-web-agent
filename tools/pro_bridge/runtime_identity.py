@@ -30,9 +30,10 @@ RUNTIME_PACKAGE_ROOTS = (
     "tools/pro_bridge", "adapters/generic", "schemas", "config",
     "capability-manifest.json",
     "LICENSE", "THIRD_PARTY_NOTICES.md", "SECURITY.md",
-    "README.md", "README.zh-CN.md",
+    "README.md", "README.zh-CN.md", "CONTRIBUTING.md",
     "docs/QUICKSTART.md", "docs/QUICKSTART.zh-CN.md",
     "docs/RESEARCH_USE.md", "docs/RESEARCH_USE.zh-CN.md",
+    "docs/legal/LICENSE", "docs/legal/LICENSE_SCOPE.md",
 )
 ALLOWED_MANAGED_ROOTS = (RELEASE_ROOTS, RUNTIME_PACKAGE_ROOTS)
 PACKAGE_KIND_ROOTS = {
@@ -63,6 +64,15 @@ def managed_roots_for(package_kind: str = "release") -> tuple[str, ...]:
 
 def allowed_managed_roots(value: object) -> bool:
     return value in (list(RELEASE_ROOTS), list(RUNTIME_PACKAGE_ROOTS))
+
+
+def consistent_package_kind(manifest: dict) -> bool:
+    """package_kind must match managed_roots; legacy (no kind) => RELEASE_ROOTS only."""
+    roots = manifest.get("managed_roots")
+    kind = manifest.get("package_kind")
+    if kind is None:
+        return roots == list(RELEASE_ROOTS)
+    return isinstance(kind, str) and kind in PACKAGE_KIND_ROOTS and roots == list(PACKAGE_KIND_ROOTS[kind])
 
 
 
@@ -141,7 +151,7 @@ def read_manifest(root: Path) -> tuple[dict, str]:
         raise ValueError("release manifest too large")
     manifest = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique)
     if (not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int
-            or manifest["schema_version"] != 1 or not allowed_managed_roots(manifest.get("managed_roots"))
+            or manifest["schema_version"] != 1 or not allowed_managed_roots(manifest.get("managed_roots")) or not consistent_package_kind(manifest)
             or manifest.get("runtime_roots") != list(RUNTIME_ROOTS)
             or not isinstance(manifest.get("source_commit"), str)
             or not COMMIT.fullmatch(manifest["source_commit"])):
