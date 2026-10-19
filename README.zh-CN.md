@@ -1,8 +1,8 @@
-# chatgptpro-web-bridge — 非商业研究预览
+# chatgptpro-web-agent — 非商业研究预览
 
 [English](README.md) · [离线快速开始](docs/QUICKSTART.zh-CN.md) · [研究与使用边界](docs/RESEARCH_USE.zh-CN.md) · [许可证](LICENSE) · [安全说明](SECURITY.md)
 
-**非商业研究预览，不是已批准的公开发布。** 本仓库采用全新 Git 历史和严格的文件白名单，不 Fork、不克隆旧内部工程仓库。本项目不是 OpenAI 官方产品，也不代表获得官方背书。仓库可见性只是所有者设置，本身不是产品能力、权利核清或发布批准。
+**非商业研究预览，不是已批准的公开发布。** 本仓库（`cherwinyu/chatgptpro-web-agent`）采用全新 Git 历史和严格的文件白名单，不 Fork、不克隆旧内部工程仓库。该仓库名不是 OpenAI 产品名。本项目不是 OpenAI 官方产品，也不代表获得官方背书。仓库可见性只是所有者设置，本身不是产品能力、权利核清或发布批准。
 
 ## 当前可以验证的功能
 
