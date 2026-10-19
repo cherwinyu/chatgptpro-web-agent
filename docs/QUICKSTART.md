@@ -36,7 +36,7 @@ py -3.12 -m unittest discover -s tests/audit -v
 
 ## Windows host and ledger reliability
 
-Windows can refuse `os.replace` or `rename` when an open handle does not allow delete sharing. `EPERM`, access denied, or WinError 5 means that replace did not finish. It does not identify which process held the file.
+Windows can refuse `os.replace` or `rename` when an open handle does not allow delete sharing. A replace or rename error means successful completion was not reliably confirmed. The final on-disk state may require independent verification; the error alone does not identify the process responsible.
 
 Auxiliary progress snapshots, such as `progress.json`, belong to the host. The host must serialize writes to one target, persist only the newest pending snapshot, and retry a sharing conflict for a short bounded time. When that budget is exhausted, progress persistence is `degraded` and the diagnostic stream reports it. Degradation must not stop the agent, must not overwrite the business result, and is not evidence that the bridge failed. User cancellation and a real timeout still stop the task.
 
