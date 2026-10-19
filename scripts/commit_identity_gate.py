@@ -1,10 +1,17 @@
 """Fail-closed offline privacy gate for every *reachable* Git commit.
 
-No inherited baseline is exempt. Root commits, older ancestors, both parents of
-merges, and the present tip must all use GitHub no-reply author AND committer
-identities. This checks local Git objects only, performs no fetch or mutation,
-and never prints email values. Unreachable objects and hosting-provider records
-remain outside the coverage of Git history checks.
+No inherited baseline is exempt, and no commit SHA is exempt. Root commits,
+older ancestors, both parents of merges, and the present tip are all checked.
+Authors must use a GitHub users.noreply.github.com address. Committers must
+use that same form, or the exact GitHub web squash/merge committer: the name
+"GitHub" with the mailbox noreply@github.com. Any other name on that mailbox
+is rejected.
+
+This checks local Git objects only, performs no fetch or mutation, and never
+prints email values. Matching a no-reply mailbox is an offline privacy filter.
+It is not cryptographic proof that GitHub signed the commit, and it does not
+consult GitHub account records. Unreachable objects and hosting-provider
+records remain outside the coverage of Git history checks.
 """
 from __future__ import annotations
 
@@ -18,8 +25,12 @@ import subprocess
 MAX_COMMITS = 500
 MAX_EVENT_BYTES = 2 * 1024 * 1024
 COMMIT = re.compile(r"[0-9a-f]{40}\Z", re.I)
-NOREPLY = re.compile(
+USER_NOREPLY = re.compile(
     r"(?:[0-9]+\+)?[A-Za-z0-9][A-Za-z0-9\[\]_-]*@users\.noreply\.github\.com\Z", re.I)
+# GitHub's web squash and merge button records this committer exactly.
+# String equality is not a signature check.
+GITHUB_WEB_COMMITTER_EMAIL = "noreply@github.com"
+GITHUB_WEB_COMMITTER_NAME = "GitHub"
 
 
 def _safe_env() -> dict[str, str]:
@@ -53,8 +64,37 @@ def _sha(value: object) -> str:
     return value.lower()
 
 
-def _is_noreply(value: str) -> bool:
-    return bool(NOREPLY.fullmatch(value.strip()))
+def _is_user_noreply(value: str) -> bool:
+    return bool(USER_NOREPLY.fullmatch(value.strip()))
+
+
+def _is_github_web_committer(email: str, name: str) -> bool:
+    # Surrounding whitespace does not change the mailbox. The display name is
+    # strict: "GitHub" only, with no trim and no alternate spelling.
+    return email.strip() == GITHUB_WEB_COMMITTER_EMAIL and name == GITHUB_WEB_COMMITTER_NAME
+
+
+def _author_and_committer_allowed(author_email: str, committer_email: str, committer_name: str) -> bool:
+    # The web committer mailbox is not an accepted author identity.
+    if not _is_user_noreply(author_email):
+        return False
+    if _is_user_noreply(committer_email):
+        return True
+    return _is_github_web_committer(committer_email, committer_name)
+
+
+def _read_identity(repo: Path, oid: str) -> tuple[str, str, str]:
+    raw = _git(repo, "show", "-s", "--format=%ae%x1e%ce%x1e%cn", oid)
+    try:
+        text = raw.decode("utf-8", "strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("commit_identity_unreadable") from exc
+    if text.endswith("\n"):
+        text = text[:-1]
+    parts = text.split("\x1e")
+    if len(parts) != 3 or parts[0] == "" or parts[1] == "":
+        raise ValueError("commit_identity_unreadable")
+    return parts[0], parts[1], parts[2]
 
 
 def inspect_history(repo: Path, heads: list[str] | None = None, *, all_refs: bool = False) -> dict:
@@ -97,14 +137,8 @@ def inspect_history(repo: Path, heads: list[str] | None = None, *, all_refs: boo
         raise ValueError("more_than_one_root_or_incomplete_history")
     findings = []
     for oid in ids:
-        raw = _git(repo, "show", "-s", "--format=%ae%n%ce", oid)
-        try:
-            data = raw.decode("utf-8", "strict").splitlines()
-        except UnicodeDecodeError as exc:
-            raise ValueError("commit_identity_unreadable") from exc
-        if len(data) != 2:
-            raise ValueError("commit_identity_unreadable")
-        if not (_is_noreply(data[0]) and _is_noreply(data[1])):
+        author_email, committer_email, committer_name = _read_identity(repo, oid)
+        if not _author_and_committer_allowed(author_email, committer_email, committer_name):
             findings.append(oid[:12])
     return {"status": "PASS" if not findings else "BLOCKED_PERSONAL_EMAIL",
             "commits_examined": len(ids), "heads_examined": inspected_heads,
@@ -163,7 +197,9 @@ def main(argv=None) -> int:
         repo = args.repository.resolve(strict=True)
         if args.preflight:
             address = _git(repo, "config", "--local", "--get", "user.email").decode("utf-8", "strict").strip()
-            result = {"status": "PASS" if _is_noreply(address) else "BLOCKED_PERSONAL_EMAIL",
+            # Local commits stamp this address on the author, so the web
+            # committer mailbox is not a valid preflight identity.
+            result = {"status": "PASS" if _is_user_noreply(address) else "BLOCKED_PERSONAL_EMAIL",
                       "check": "local_git_user_email", "full_email_values_exposed": False}
         elif args.event:
             result = inspect_history(repo, _event_heads(repo, args.event))

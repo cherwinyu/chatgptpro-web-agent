@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md) · [Security](SECURITY.md) · [License](LICENSE)
 
-This is a **noncommercial research preview**, not an OSI-approved open-source project, not an approved public release, and not a production service. The license text is source-available PolyForm Noncommercial 1.0.0 and is not an OSI-approved open-source license. The permitted license scope is limited to rights the licensor controls. Third-party rights are not cleared by accepting a change. Any proposed third-party snippet must include provenance and all required notices, or it must stay out of the tree.
+This is a **noncommercial research preview** of `cherwinyu/chatgptpro-web-agent`, not an OSI-approved open-source project, not an approved public release, and not a production service. The license text is source-available PolyForm Noncommercial 1.0.0. PolyForm Noncommercial is not OSI Open Source. The permitted license scope is limited to rights the licensor controls. Third-party rights are not cleared by accepting a change. Any proposed third-party snippet must include provenance and all required notices, or it must stay out of the tree.
 
 Use new branches and synthetic fixtures. For Windows (Python 3.12, Git 2.32+), run the same offline checks as `.github/workflows/offline.yml`:
 

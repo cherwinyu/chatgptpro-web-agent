@@ -1,4 +1,7 @@
-"""Offline synthetic checks of entire reachable Git ancestry: no legacy exception."""
+"""Offline synthetic checks of entire reachable Git ancestry: no legacy exception.
+
+The GitHub web committer is a strict name-and-mailbox allowance, not a SHA exemption.
+"""
 from __future__ import annotations
 
 import contextlib
@@ -37,14 +40,29 @@ class CommitIdentityGateTests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), *args],
                               check=True, capture_output=True, text=True, env=e).stdout.strip()
 
-    def commit(self, name, author=NOREPLY, committer=NOREPLY):
+    def commit(self, name, author=NOREPLY, committer=NOREPLY, *,
+               author_name="Synthetic Author", committer_name="Synthetic Committer"):
         with (self.repo/"synthetic.txt").open("a", encoding="utf-8") as f:
             f.write(name + "\n")
         self.git("add", "synthetic.txt")
         env = {"GIT_AUTHOR_EMAIL": author, "GIT_COMMITTER_EMAIL": committer,
-               "GIT_AUTHOR_NAME": "Synthetic Author", "GIT_COMMITTER_NAME": "Synthetic Committer"}
+               "GIT_AUTHOR_NAME": author_name, "GIT_COMMITTER_NAME": committer_name}
         self.git("-c", "commit.gpgsign=false", "commit", "-qm", name, env=env)
         return self.git("rev-parse", "HEAD")
+
+    def at_root(self):
+        self.git("checkout", "-q", "-B", "case", self.root)
+
+    def assert_blocked(self, sha, *secrets):
+        result = gate.inspect_history(self.repo, [sha])
+        self.assertEqual(result["status"], "BLOCKED_PERSONAL_EMAIL")
+        self.assertIn(sha[:12], result["flagged_commit_prefixes"])
+        self.assertFalse(result["full_email_values_exposed"])
+        self.assertFalse(result["historical_exemption"])
+        blob = json.dumps(result)
+        for secret in secrets:
+            self.assertNotIn(secret, blob)
+        return result
 
     def cli(self, *args):
         output = io.StringIO()
@@ -167,6 +185,176 @@ class CommitIdentityGateTests(unittest.TestCase):
             code, result = self.cli("--event", str(event))
         self.assertEqual(code, 3)
         self.assertEqual(result["status"], "REFUSED")
+
+    def test_user_noreply_author_and_committer_remain_accepted(self):
+        head = self.commit("both user noreply")
+        report = gate.inspect_history(self.repo, [head])
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["commits_examined"], 2)
+        self.assertEqual(report["roots_found"], 1)
+        self.assertEqual(report["flagged_commit_prefixes"], [])
+        self.assertFalse(report["historical_exemption"])
+        code, output = self.cli("--head", head)
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+
+    def test_github_web_committer_with_user_noreply_author_is_accepted(self):
+        head = self.commit("web squash", NOREPLY, "noreply@github.com", committer_name="GitHub")
+        report = gate.inspect_history(self.repo, [head])
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["commits_examined"], 2)
+        self.assertEqual(report["flagged_commit_prefixes"], [])
+        self.assertNotIn("noreply@github.com", json.dumps(report))
+        code, output = self.cli("--head", head)
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+
+    def test_clean_root_and_multicommit_chain_including_web_committer(self):
+        self.commit("second user noreply")
+        head = self.commit("third web", NOREPLY, "noreply@github.com", committer_name="GitHub")
+        report = gate.inspect_history(self.repo, [head])
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["commits_examined"], 3)
+        self.assertEqual(report["roots_found"], 1)
+        self.assertFalse(report["historical_exemption"])
+
+    def test_pull_request_and_push_events_accept_web_committer(self):
+        head = self.commit("event web", NOREPLY, "noreply@github.com", committer_name="GitHub")
+        event = self.repo / "event.json"
+        event.write_text(json.dumps({"pull_request": {"base": {"sha": self.root},
+                                                       "head": {"sha": head}}}), encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_SHA": "c" * 40}):
+            code, output = self.cli("--event", str(event))
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.assertEqual(output["commits_examined"], 2)
+        event.write_text(json.dumps({"before": self.root, "after": head}), encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": head}):
+            code, output = self.cli("--event", str(event))
+        self.assertEqual(code, 0)
+        self.assertEqual(output["commits_examined"], 2)
+
+    def test_spoofed_noreply_domains_rejected(self):
+        spoofs = (
+            "person@users.noreply.github.com.example",
+            "person@users.noreply.github.co",
+            "person@users-noreply.github.com",
+            "noreply@github.com.example",
+            "noreply@github.co",
+            "noreply@githubs.com",
+            "noreply@GITHUB.com",
+            "noreply@github.com.",
+            "notgithub@github.com",
+            "noreply@users.github.com",
+            "users.noreply.github.com@example.com",
+            "noreply@github.com@users.noreply.github.com",
+        )
+        for email in spoofs:
+            self.at_root()
+            author_bad = self.commit("spoof author", email, NOREPLY)
+            self.assert_blocked(author_bad, email)
+            self.at_root()
+            committer_bad = self.commit("spoof committer", NOREPLY, email, committer_name="GitHub")
+            self.assert_blocked(committer_bad, email)
+
+    def test_wrong_committer_name_with_noreply_github_rejected(self):
+        # Git trims surrounding whitespace before writing an ident, so padded
+        # names are checked on the predicate. History checks use stored names.
+        self.assertFalse(gate._is_github_web_committer("noreply@github.com", "GitHub "))
+        self.assertFalse(gate._is_github_web_committer("noreply@github.com", " GitHub"))
+        self.assertFalse(gate._is_github_web_committer("noreply@github.com", "github"))
+        self.assertFalse(gate._is_github_web_committer("noreply@github.com", "GitHub\u200b"))
+        self.assertFalse(gate._is_github_web_committer("noreply@GITHUB.com", "GitHub"))
+        self.assertFalse(gate._is_github_web_committer("noreply@github.com.example", "GitHub"))
+        self.assertTrue(gate._is_github_web_committer("noreply@github.com", "GitHub"))
+        self.assertFalse(gate._author_and_committer_allowed(
+            "noreply@github.com", "noreply@github.com", "GitHub"))
+        names = ("github", "GITHUB", "GitHub Bot", "Git Hub",
+                 "github-actions[bot]", "web-flow", "Not GitHub")
+        for name in names:
+            self.at_root()
+            sha = self.commit("wrong name", NOREPLY, "noreply@github.com", committer_name=name)
+            self.assert_blocked(sha, "noreply@github.com")
+
+    def test_author_official_noreply_mailbox_rejected(self):
+        sha = self.commit("author web mailbox", "noreply@github.com", NOREPLY, author_name="GitHub")
+        self.assert_blocked(sha, "noreply@github.com")
+        self.at_root()
+        both = self.commit("both web mailbox", "noreply@github.com", "noreply@github.com",
+                           author_name="GitHub", committer_name="GitHub")
+        self.assert_blocked(both, "noreply@github.com")
+
+    def test_personal_author_rejected_even_with_web_committer(self):
+        sha = self.commit("personal author web committer", PERSONAL, "noreply@github.com",
+                          committer_name="GitHub")
+        result = self.assert_blocked(sha, PERSONAL, "noreply@github.com")
+        self.assertEqual(result["commits_examined"], 2)
+
+    def test_ancestor_leak_still_flagged_under_web_committer_tip(self):
+        old = self.commit("leaked ancestor", PERSONAL, PERSONAL)
+        tip = self.commit("later web", NOREPLY, "noreply@github.com", committer_name="GitHub")
+        result = gate.inspect_history(self.repo, [tip])
+        self.assertEqual(result["status"], "BLOCKED_PERSONAL_EMAIL")
+        self.assertIn(old[:12], result["flagged_commit_prefixes"])
+        self.assertNotIn(tip[:12], result["flagged_commit_prefixes"])
+        self.assertEqual(result["commits_examined"], 3)
+        blob = json.dumps(result)
+        self.assertNotIn(PERSONAL, blob)
+        self.assertNotIn("noreply@github.com", blob)
+        self.assertFalse(result["historical_exemption"])
+
+    def test_invalid_graph_and_event_still_refused(self):
+        blob = self.git("hash-object", "-w", "synthetic.txt")
+        with self.assertRaises(ValueError):
+            gate.inspect_history(self.repo, [blob])
+        code, output = self.cli("--head", blob)
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        self.assertNotIn("@", json.dumps(output))
+        event = self.repo / "event.json"
+        event.write_text("[]", encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": self.root}):
+            code, output = self.cli("--event", str(event))
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        event.write_text("{}", encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "pull_request"}):
+            code, output = self.cli("--event", str(event))
+        self.assertEqual(output["status"], "REFUSED")
+        event.write_text("{", encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": self.root}):
+            code, output = self.cli("--event", str(event))
+        self.assertEqual(output["status"], "REFUSED")
+        event.write_text("{}", encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "issues", "GITHUB_SHA": self.root}):
+            code, output = self.cli("--event", str(event))
+        self.assertEqual(output["status"], "REFUSED")
+        event.write_text(json.dumps({"before": "0" * 40, "after": self.root}), encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": "b" * 40}):
+            code, output = self.cli("--event", str(event))
+        self.assertEqual(output["status"], "REFUSED")
+        self.assertNotIn(NOREPLY, json.dumps(output))
+        self.assertNotIn(PERSONAL, json.dumps(output))
+
+    def test_non_fast_forward_push_still_refused_for_web_committer(self):
+        head = self.commit("web tip", NOREPLY, "noreply@github.com", committer_name="GitHub")
+        self.git("checkout", "-qb", "other", self.root)
+        other = self.commit("divergent")
+        self.git("checkout", "-q", "main")
+        event = self.repo / "event.json"
+        event.write_text(json.dumps({"before": other, "after": head}), encoding="utf-8")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": head}):
+            code, result = self.cli("--event", str(event))
+        self.assertEqual(code, 3)
+        self.assertEqual(result["status"], "REFUSED")
+        self.assertNotIn("noreply@github.com", json.dumps(result))
+
+    def test_preflight_rejects_web_committer_mailbox(self):
+        self.git("config", "user.email", "noreply@github.com")
+        code, output = self.cli("--preflight")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "BLOCKED_PERSONAL_EMAIL")
+        self.assertNotIn("noreply@github.com", json.dumps(output))
 
 
 if __name__ == "__main__":
