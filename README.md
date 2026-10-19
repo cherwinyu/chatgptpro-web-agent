@@ -1,8 +1,8 @@
-# chatgptpro-web-bridge — noncommercial research preview
+# chatgptpro-web-agent — noncommercial research preview
 
 [简体中文](README.zh-CN.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
 
-**Noncommercial research preview — not approved for public release.** This repository is a fresh-history, allowlisted research subset, not a fork or clone of the prior internal engineering workspace. It is not affiliated with or endorsed by OpenAI. Repository visibility is an owner setting; it is not a product capability, a rights clearance, or publication approval.
+**Noncommercial research preview — not approved for public release.** This repository (`cherwinyu/chatgptpro-web-agent`) is a fresh-history, allowlisted research subset, not a fork or clone of the prior internal engineering workspace. The repository name is not an OpenAI product name. It is not affiliated with or endorsed by OpenAI. Repository visibility is an owner setting; it is not a product capability, a rights clearance, or publication approval.
 
 ## What can be tested
 
