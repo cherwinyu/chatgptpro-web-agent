@@ -33,3 +33,13 @@ py -3.12 -m unittest discover -s tests/audit -v
 - `license_bytes`: the working tree is not the stored LF bytes. This repository sets `* text=auto eol=lf` in `.gitattributes`. Re-checkout the files; do not edit `LICENSE` to match a CRLF copy.
 - Python is not 3.12, or Git is older than 2.32: install the stated versions and rerun. Do not skip the failing check.
 - Any command asks for a ChatGPT or GitHub login: stop. These commands do not need real credentials.
+
+## Windows host and ledger reliability
+
+Windows can refuse `os.replace` or `rename` when an open handle does not allow delete sharing. A replace or rename error means successful completion was not reliably confirmed. The final on-disk state may require independent verification; the error alone does not identify the process responsible.
+
+Auxiliary progress snapshots, such as `progress.json`, belong to the host. The host must serialize writes to one target, persist only the newest pending snapshot, and retry a sharing conflict for a short bounded time. When that budget is exhausted, progress persistence is `degraded` and the diagnostic stream reports it. Degradation must not stop the agent, must not overwrite the business result, and is not evidence that the bridge failed. User cancellation and a real timeout still stop the task.
+
+The send ledger, receipts, and final results are not progress snapshots. A failure to save them must not be ignored or reported as full success. The bridge allows a send only after the send claim is confirmed on disk. If a replace outcome is uncertain, it must not send and must not create a replacement task or ledger. If a send may already have happened, recover by reading the original task, its receipt, and existing remote evidence. `SUBMISSION_UNKNOWN` still forbids automatic resend.
+
+Keep task status (`running`, `succeeded`, `failed`, `cancelled`) separate from progress persistence (`healthy`, `degraded`). A progress fault, a timeout, a user cancellation, and a bridge protocol error are different outcomes.
