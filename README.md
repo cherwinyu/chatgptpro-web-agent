@@ -1,8 +1,10 @@
-# chatgptpro-web-agent — noncommercial research preview
+# chatgptpro-web-agent
 
 [简体中文](README.zh-CN.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
 
-**This repository is publicly available as an independent noncommercial research preview under PolyForm Noncommercial 1.0.0.** `cherwinyu/chatgptpro-web-agent` is a fresh-history, allowlisted research subset, not a fork or clone of the prior internal engineering workspace. The repository name is not an OpenAI product name. It is not affiliated with or endorsed by OpenAI. No formal versioned Release has been published. Public source availability does not imply a verified live ChatGPT integration, production readiness, OpenAI endorsement, or permission to use third-party services.
+**Windows offline research bridge for agent task handoffs: at-most-once local send claims, original receipts, and Git result checks—with synthetic data only. Not a live ChatGPT client or official OpenAI product.**
+
+This repository is a publicly available independent noncommercial research preview under PolyForm Noncommercial 1.0.0. `cherwinyu/chatgptpro-web-agent` is a fresh-history, allowlisted research subset, not a fork or clone of the prior internal engineering workspace. The repository name is not an OpenAI product name. It is not affiliated with or endorsed by OpenAI. No formal versioned Release has been published. Public source availability does not imply a verified live ChatGPT integration, production readiness, OpenAI endorsement, or permission to use third-party services.
 
 ## What can be tested
 
