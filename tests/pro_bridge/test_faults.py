@@ -1,4 +1,4 @@
-"""Fault cases F01-F12 for the local bridge protocol mock."""
+"""Fault cases F01-F12 and Windows ledger cases W01-W11."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import contextlib
 import ctypes
 import io
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -647,6 +648,22 @@ def test_w08(root: Path) -> None:
         return
     kernel, handle = holder
     errors: list[BaseException] = []
+    conflict = threading.Event()
+    released = threading.Event()
+    # Set only from the real os.replace failure, and only while this handle is still open.
+    conflict_before_release = {"ok": False, "winerror": None}
+    real_replace = bridge.os.replace
+
+    def observing_replace(src, dst):
+        try:
+            return real_replace(src, dst)
+        except OSError as exc:
+            winerror = getattr(exc, "winerror", None)
+            if not released.is_set() and isinstance(winerror, int) and winerror in {5, 32, 33, 1224}:
+                conflict_before_release["ok"] = True
+                conflict_before_release["winerror"] = winerror
+                conflict.set()
+            raise
 
     def writer() -> None:
         try:
@@ -654,22 +671,37 @@ def test_w08(root: Path) -> None:
         except OSError as exc:
             errors.append(exc)
 
+    bridge.os.replace = observing_replace
     thread = threading.Thread(target=writer)
-    thread.start()
-    time.sleep(0.08)
-    kernel.CloseHandle(handle)
-    thread.join(2)
+    open_handle = handle
+    try:
+        thread.start()
+        observed = conflict.wait(2.0)
+        if not observed or not conflict_before_release["ok"] or released.is_set():
+            check("W08", False, "NOT_VERIFIED sharing conflict was not observed before handle release")
+            return
+        kernel.CloseHandle(open_handle)
+        open_handle = None
+        released.set()
+        thread.join(2)
+    finally:
+        bridge.os.replace = real_replace
+        released.set()
+        if open_handle is not None:
+            kernel.CloseHandle(open_handle)
+        thread.join(2)
     text = ledger.path.read_text(encoding="utf-8")
     check(
         "W08",
         sustained == "original_intact"
         and intact
         and sustained_elapsed < 1.5
+        and conflict_before_release["ok"]
         and not errors
         and not thread.is_alive()
         and "released-write" in text
         and "blocked-write" not in text,
-        f"sustained={sustained} elapsed={sustained_elapsed:.3f} errors={len(errors)} alive={thread.is_alive()}",
+        f"sustained={sustained} elapsed={sustained_elapsed:.3f} winerror={conflict_before_release['winerror']} errors={len(errors)} alive={thread.is_alive()}",
     )
 
 
@@ -741,6 +773,64 @@ def test_w10(root: Path) -> None:
     )
 
 
+def test_w11(root: Path) -> None:
+    """Temp bytes changed after serialization must not become the expected ledger."""
+    directory = root / "w11"
+    clock = bridge.Clock()
+    ledger = bridge.Ledger(directory, clock)
+    item = manifest(clock)
+    ledger.prepare(item)
+    before = ledger.path.read_bytes()
+    tampered = {"done": False}
+    foreign = b'{"tampered":"B","send_attempts":1,"state":"SUBMISSION_UNKNOWN"}\n'
+    real_fsync = bridge.os.fsync
+
+    def fsync_then_replace_temp(fd: int) -> None:
+        real_fsync(fd)
+        if tampered["done"]:
+            return
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        written = os.write(fd, foreign)
+        if written != len(foreign):
+            raise OSError("short tamper write")
+        real_fsync(fd)
+        tampered["done"] = True
+
+    bridge.os.fsync = fsync_then_replace_temp
+    claimed = None
+    outcome = None
+    try:
+        try:
+            claimed = ledger.claim_send(item["task_id"])
+        except bridge.PersistenceError as exc:
+            claimed = False
+            outcome = exc.outcome
+    finally:
+        bridge.os.fsync = real_fsync
+    current = ledger.path.read_bytes()
+    record_state = None
+    record_attempts = None
+    try:
+        record = json.loads(current.decode("utf-8"))["tasks"][item["task_id"]]
+        record_state = record.get("state")
+        record_attempts = record.get("send_attempts")
+    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, AttributeError):
+        record_state = None
+        record_attempts = None
+    check(
+        "W11",
+        tampered["done"] is True
+        and claimed is False
+        and outcome == "uncertain"
+        and current == before
+        and foreign not in current
+        and record_state == "PREPARED"
+        and record_attempts == 0,
+        f"claimed={claimed} outcome={outcome} state={record_state} attempts={record_attempts} tampered={tampered['done']} intact={current == before}",
+    )
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="poc5-bridge-") as directory:
         root = Path(directory)
@@ -766,9 +856,10 @@ def main() -> None:
         test_w08(root)
         test_w09(root)
         test_w10(root)
+        test_w11(root)
     failed = [item for item in RESULTS if not item[1]]
     print(f"BRIDGE_CASES={len(RESULTS)} FAILED={len(failed)}")
-    expected = {f"F{index:02d}" for index in range(1, 13)} | {f"W{index:02d}" for index in range(1, 11)}
+    expected = {f"F{index:02d}" for index in range(1, 13)} | {f"W{index:02d}" for index in range(1, 12)}
     if not failed and {item[0] for item in RESULTS} == expected:
         print("BRIDGE_V2_MOCK_PASS")
         raise SystemExit(0)
