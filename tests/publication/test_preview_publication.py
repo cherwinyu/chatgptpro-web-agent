@@ -100,4 +100,27 @@ class PublicPreviewTests(unittest.TestCase):
             self.assertNotRegex(body, r'/actions/runs/\d+')
             self.assertNotRegex(body, r'\b[0-9a-f]{40}\b')
 
+    def test_online_evidence_does_not_certify_head_or_token_savings(self):
+        manifest=json.loads((self.root/'capability-manifest.json').read_text(encoding='utf-8'))
+        offload=manifest['online_offload']
+        self.assertFalse(offload['certifies_current_tree'])
+        self.assertEqual(offload['runtime_source_digest_at_collection'],
+                         '4fe06dd107a243e016728081e311e8056f6fa12b05ee83d80632ac27ebcb9784')
+        self.assertEqual(manifest['model_or_fee_claim'], 'NOT_OBSERVABLE')
+        sys.path.insert(0, str(self.root/'tools/pro_bridge'))
+        import runtime_identity
+        current=runtime_identity.mapping_digest(runtime_identity.inventory(self.root, runtime_identity.RUNTIME_ROOTS))
+        self.assertNotEqual(current, offload['runtime_source_digest_at_collection'])
+        readme=(self.root/'README.md').read_text(encoding='utf-8')
+        zh=(self.root/'README.zh-CN.md').read_text(encoding='utf-8')
+        self.assertIn('does not certify this checkout', readme)
+        self.assertIn('不能证明当前这份代码', zh)
+        self.assertIn('offloadTask', readme)
+        self.assertIn('recoverTask', zh)
+        for name in ('docs/INTEGRATION.md','docs/INTEGRATION.zh-CN.md','docs/ONLINE_WORKFLOW.md'):
+            body=(self.root/name).read_text(encoding='utf-8')
+            self.assertIn('browser_response', body)
+            self.assertIn('recoverTask', body)
+            self.assertNotIn('token savings achieved', body.lower())
+
 if __name__=='__main__':unittest.main()

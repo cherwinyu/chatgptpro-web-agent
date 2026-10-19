@@ -1,6 +1,6 @@
 # chatgptpro-web-agent
 
-[English](README.md) · [在线使用](docs/ONLINE_WORKFLOW.md) · [离线快速开始](docs/QUICKSTART.zh-CN.md) · [研究与使用边界](docs/RESEARCH_USE.zh-CN.md) · [许可证](LICENSE) · [安全说明](SECURITY.md)
+[English](README.md) · [接入主代理](docs/INTEGRATION.zh-CN.md) · [在线使用](docs/ONLINE_WORKFLOW.md) · [离线快速开始](docs/QUICKSTART.zh-CN.md) · [研究与使用边界](docs/RESEARCH_USE.zh-CN.md) · [许可证](LICENSE) · [安全说明](SECURITY.md)
 
 **面向 Windows 的研究型任务分担助手：让宿主代理把有明确边界的分析交给普通网页 ChatGPT，等待完成，再把回复取回本地。**
 
@@ -30,11 +30,11 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 要求 Windows、Python 3.12、Git 2.32+。权限预览始终不授予发送资格。不要把离线测试通过理解为线上 ChatGPT 网页发送已通过验证。
 
-实际分担任务还需要 Node.js 22+、宿主提供的 CUA 浏览器 API，以及已登录的普通 Chat 页面。在宿主的 JavaScript 浏览器运行环境中依次调用 `observeNewChat` → `prepareOnline` → `sendOnce` → `waitAndCollect` → `readCollected`。完整示例、安装与证据路径、恢复方法见[在线使用与验收](docs/ONLINE_WORKFLOW.md)。单独运行终端不能驱动浏览器；在提示词里写本地源码路径也不会上传文件内容。
+实际分担任务还需要 Node.js 22+、宿主提供的 CUA 浏览器 API，以及已登录的普通 Chat 页面。在宿主的 JavaScript 浏览器运行环境中调用一次 `offloadTask`。如果该进程中断，对同一张回执调用 `recoverTask`；它不会再次点击发送。调用约定见[接入说明](docs/INTEGRATION.zh-CN.md)，选择器、失败行为和历史浏览器记录见[在线使用](docs/ONLINE_WORKFLOW.md)。单独运行终端不能驱动浏览器；在提示词里写本地源码路径也不会上传文件内容。
 
 ## 功能与使用限制
 
-2026-10-19 已在 Codex 内置浏览器用页面显示的 GPT-6 / Pro 完成一条合成只读审查任务，回收了 325 字渲染正文；按原回执恢复后，发送次数仍为 1，正文哈希一致。这是该宿主和中文普通 Chat 页面结构的本地验收，其他宿主、语言和项目内起始页面需单独验证。直接回收正文不依赖网页端写 GitHub；原 Git 验证路径独立保留。本项目不提供通用浏览器驱动、托管模型 API 客户端或凭据保管。token 和订阅额度是否节省仍待定。
+2026-10-19 已在 Codex 内置浏览器用页面显示的 GPT-6 / Pro 完成一条合成只读审查任务，回收了 325 字渲染正文；按原回执恢复后，发送次数仍为 1，正文哈希一致。该记录绑定 `capability-manifest.json` 里的运行时摘要。该摘要与当前工作区不一致，因此不能证明当前这份代码、其他宿主、其他界面语言或某个消费方项目已经验收。直接回收正文不依赖网页端写 GitHub；原 Git 验证路径独立保留，不能把聊天回复升级成 Git 批准。本项目不提供通用浏览器驱动、托管模型 API 客户端或凭据保管。token 和订阅额度节省不是已经实现的结果。
 
 正式法律文本为未修改的 [PolyForm Noncommercial License 1.0.0](LICENSE)，只适用于授权者实际有权许可的内容。它允许符合条款的非商业使用、修改与分发，但不是 OSI 开源许可证，也不自动授权未核实的第三方材料，更不表示第三方权利已经核清。“不用于生产环境”是项目支持定位，不是偷偷收紧 PolyForm 原条款。详见[授权范围说明](docs/legal/LICENSE_SCOPE.md)。
 

@@ -1,6 +1,6 @@
 # chatgptpro-web-agent
 
-[简体中文](README.zh-CN.md) · [Online workflow](docs/ONLINE_WORKFLOW.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
+[简体中文](README.zh-CN.md) · [Integrate a primary agent](docs/INTEGRATION.md) · [Online workflow](docs/ONLINE_WORKFLOW.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
 
 **A Windows research helper that lets a host agent hand a bounded analysis to ordinary web ChatGPT, wait for it, and collect the reply locally.**
 
@@ -30,11 +30,11 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 Requirements: Windows, Python 3.12, Git 2.32+. No credential, session cookie, account login or model API key is required to run these examples. The permission preview always reports `send_authorized=false`; it cannot create a send entitlement.
 
-For an actual handoff, the host additionally needs Node.js 22+, its documented CUA browser API and a logged-in ordinary Chat page. In that host's JavaScript browser runtime, use `observeNewChat` → `prepareOnline` → `sendOnce` → `waitAndCollect` → `readCollected`. The [online guide](docs/ONLINE_WORKFLOW.md) provides the executable example, explicit installation/evidence paths and recovery steps. A terminal alone cannot drive the browser, and putting local file paths in a prompt does not upload their contents.
+For an actual handoff, the host additionally needs Node.js 22+, its documented CUA browser API and a logged-in ordinary Chat page. In that host's JavaScript browser runtime, call `offloadTask` once. If that process stops, call `recoverTask` on the same receipt; it does not click send again. The [integration guide](docs/INTEGRATION.md) is the caller contract. The [online guide](docs/ONLINE_WORKFLOW.md) records selectors, failure behavior and the historical browser run. A terminal alone cannot drive the browser, and putting local file paths in a prompt does not upload their contents.
 
 ## Online integration scope
 
-On 2026-10-19 a synthetic read-only review completed in the Codex in-app browser with visible labels GPT-6 / Pro. Its 325-character rendered reply was collected; original-receipt recovery retained one send attempt and the same reply hash. This is local acceptance of that host and Chinese ordinary-Chat UI profile. Other hosts, locales and project-bound starting pages require separate validation. Browser-response delivery does not need a GitHub writer. The original Git verification path remains separate. There is no universal browser driver, hosted-model API client or credential custodian. Token and subscription savings are unknown.
+On 2026-10-19 a synthetic read-only review completed in the Codex in-app browser with visible labels GPT-6 / Pro. Its 325-character rendered reply was collected; original-receipt recovery retained one send attempt and the same reply hash. That run is pinned to the runtime digest in `capability-manifest.json`. The digest does not match this checkout, so the run does not certify this checkout, other hosts, other locales or a consumer project. Browser-response delivery does not need a GitHub writer. The original Git verification path remains separate and is not an upgrade of a chat reply. There is no universal browser driver, hosted-model API client or credential custodian. Token and subscription savings are not an achieved result.
 
 ## Distribution and rights
 

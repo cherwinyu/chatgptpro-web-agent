@@ -1,11 +1,20 @@
 /** Local file/process transport. No browser, network, credentials or shell. */
 import { spawnSync } from 'node:child_process';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+
+function outside(parent, child) {
+  const fromParent = relative(resolve(parent), resolve(child));
+  return fromParent === '' || fromParent.startsWith('..') || fromParent.includes(':');
+}
 
 export function localTransport({ root, ledger, evidenceDirectory, receiptPath, python = 'py', pythonArgs = ['-3.12'] }) {
   if (![root, ledger, evidenceDirectory, receiptPath].every(x => typeof x === 'string' && x.length)) throw Error('EXPLICIT_PATHS_REQUIRED');
+  // Evidence stays outside this checkout. The ledger stays inside that evidence
+  // directory so two projects cannot silently share one task file.
+  if (!outside(root, evidenceDirectory)) throw Error('EVIDENCE_INSIDE_SOURCE');
+  if (outside(evidenceDirectory, ledger)) throw Error('LEDGER_MUST_BE_INSIDE_EVIDENCE');
   const run = async (command, args = [], files = {}) => {
     const extra = [];
     for (const [kind, value] of Object.entries(files)) {
@@ -68,7 +77,11 @@ export async function prepareOnline({ run, observation, evidenceDirectory, repos
     '--source-sha', sourceSha, '--source-ref', sourceRef, '--orchestration', orchestration,
     '--delivery', 'browser_response', '--task-file', resolve(taskFile), '--browser-target', targetPath,
     '--selection-evidence', selectionPath, '--deadline-seconds', String(deadlineSeconds)]);
-  if (result.code !== 0 || !result.value.receipt) throw Error('PREPARE_FAILED_NO_SEND');
+  if (result.code !== 0 || !result.value.receipt) {
+    const error = Error('PREPARE_FAILED_NO_SEND');
+    error.bridge = result.value;
+    throw error;
+  }
   writeFileSync(run.receiptPath, JSON.stringify(result.value), { encoding: 'utf8', flag: 'wx' });
   return result.value;
 }

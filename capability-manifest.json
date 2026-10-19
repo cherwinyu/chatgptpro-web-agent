@@ -32,9 +32,11 @@
     }
   ],
   "online_offload": {
-    "status": "LOCAL_IN_APP_BROWSER_ACCEPTANCE",
+    "status": "HISTORICAL_SINGLE_HOST_OBSERVATION",
+    "certifies_current_tree": false,
     "date": "2026-10-19",
-    "entrypoint": "adapters/generic/online_host.mjs",
+    "entrypoint": "adapters/generic/online_host.mjs#offloadTask",
+    "recovery": "adapters/generic/online_host.mjs#recoverTask",
     "transport": "adapters/generic/local_transport.mjs",
     "delivery": "browser_response",
     "visible_model_label": "GPT-6",

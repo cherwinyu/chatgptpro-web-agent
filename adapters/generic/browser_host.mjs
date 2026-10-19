@@ -178,12 +178,17 @@ export class BrowserSession {
       sendAuthorized: false, deliveryVerified: false, reviewApproved: false, doNotResend: true });
     while (performance.now() < end && Date.now() < deadlineAt) {
       if (signal?.aborted) return result('CANCELLED');
-      const remaining = Math.min(end - performance.now(), deadlineAt - Date.now());
+      const untilDeadline = deadlineAt - Date.now();
+      const untilBudget = end - performance.now();
+      const remaining = Math.min(untilBudget, untilDeadline);
       let snapshot;
       try {
         snapshot = await bounded(() => this.observe(request, { timeoutMs: Math.min(10000, remaining) }), remaining, signal);
       } catch (error) {
-        if (error instanceof HostError && error.code === 'HOST_TIMEOUT' && Date.now() >= deadlineAt) {
+        // A timer can fire slightly before the sampled deadline. When this read
+        // was already capped by the task deadline, that timeout is the deadline.
+        if (error instanceof HostError && error.code === 'HOST_TIMEOUT' &&
+            (Date.now() >= deadlineAt || untilDeadline <= untilBudget)) {
           return result('TASK_DEADLINE');
         }
         return result(error instanceof HostError ? error.code : 'BROWSER_UNAVAILABLE');

@@ -1,9 +1,12 @@
 # Online task offloading / 在线任务分担
 
+[Integration guide](INTEGRATION.md) · [接入说明](INTEGRATION.zh-CN.md)
+
 The purpose is to move a bounded analysis out of the main agent, then bring back
 the finished response. The main agent packages the necessary material, selects
-the actual page model and effort, sends once, and checks the answer. Reducing
-token or subscription usage was an initial hypothesis, not a demonstrated
+the actual page model and effort, sends once, and checks the answer. Call
+`offloadTask` for that sequence and `recoverTask` after an interruption.
+Reducing token or subscription usage was an initial hypothesis, not a demonstrated
 benefit. Packaging, browser operation and review can offset or exceed any saving;
 whether total usage decreases is unknown (NOT_OBSERVABLE).
 
@@ -19,12 +22,15 @@ selection checks, Git verifier and read-only CUA completion detector. The upstre
 adapter also lacked a complete send/collect orchestration. No upstream online
 acceptance was inherited.
 
-The new `online_host.mjs` connects those pieces. `local_transport.mjs` invokes
-the existing explicit-ledger launcher without a shell. New prepare flags
+`online_host.mjs` connects those pieces. `offloadTask` and `recoverTask` are the
+host-callable sequence; `observeNewChat`, `sendOnce`, `waitAndCollect` and
+`readCollected` remain the underlying steps. `local_transport.mjs` invokes the
+existing explicit-ledger launcher without a shell. New prepare flags
 `--delivery browser_response --task-file <UTF-8 file>` bind the self-contained
 task into the request hash. `collect-browser` stores the identified final reply
 and its SHA-256 in the same task record. Existing default `--delivery git` keeps
-the original two-file Git workflow and verifier.
+the original two-file Git workflow and verifier. A chat reply is not promoted
+into that Git approval.
 
 正文回收不要求网页端能读本地仓库或写 GitHub。需要分析的内容必须明确放进
 任务文件；源码路径本身不会把本地文件传给网页模型。不要填写凭据或未经授权的
@@ -51,54 +57,44 @@ and acceptance. Work mode is refused.
 Read the browser tool's documentation first. Replace the explicit paths and
 repository pin with your own task settings. Create a fresh evidence directory
 outside the source tree; keep the ledger and complete prepare receipt private.
-Never select an implicit ledger shared with another project.
+Never select an implicit ledger shared with another project. The callable
+contract, including the return fields, is [INTEGRATION.md](INTEGRATION.md).
 
 ```javascript
 // Run inside the host's browser JavaScript tool, not an ordinary terminal.
-const online = await import('file:///D:/Bridge/adapters/generic/online_host.mjs');
-const local = await import('file:///D:/Bridge/adapters/generic/local_transport.mjs');
-// tab comes from the host's documented CUA browser selection, not a guessed ID.
-const observation = await online.observeNewChat(tab, selectedBrowserId);
-if (observation.model_label !== requestedModel || observation.effort_label !== requestedEffort) {
-  throw Error('Requested visible model/effort is not selected');
-}
+const online = await import('file:///D:/bridge-checkout/adapters/generic/online_host.mjs');
+const local = await import('file:///D:/bridge-checkout/adapters/generic/local_transport.mjs');
+const evidence = 'D:/task-evidence/example-repo/task-001';
 const run = local.localTransport({
-  root: 'D:/Bridge', ledger: 'D:/Evidence/task-001/ledger',
-  evidenceDirectory: 'D:/Evidence/task-001',
-  receiptPath: 'D:/Evidence/task-001/prepare.json',
+  root: 'D:/bridge-checkout', ledger: evidence + '/ledger',
+  evidenceDirectory: evidence, receiptPath: evidence + '/prepare.json',
 });
-const prepared = await local.prepareOnline({
-  run, observation, evidenceDirectory: 'D:/Evidence/task-001',
+const outcome = await online.offloadTask({
+  tab, browserId: selectedBrowserId, run, evidenceDirectory: evidence,
   repository: 'example/repo', sourceSha: pinnedSourceSha, sourceRef: 'main',
-  taskFile: 'D:/Evidence/task-001/task.txt', orchestration: 'explicit-task-001',
+  taskFile: evidence + '/task.txt', orchestration: 'explicit-task-001',
+  requestedModel, requestedEffort, observe: online.observeNewChat,
+  composer: online.CHINESE_ORDINARY_CHAT.composer,
+  sendButton: online.CHINESE_ORDINARY_CHAT.sendButton,
+  budgetMs: 120000,
 });
-await online.sendOnce({
-  tab, prepared, run,
-  observe: () => online.observeNewChat(tab, selectedBrowserId),
-  composer: '[role="textbox"][contenteditable="true"]',
-  sendButton: 'button[aria-label="发送"]',
-});
-```
-
-The send control selectors must match the freshly observed page. The helper
-recovers the original receipt, regenerates and compares the immutable prompt,
-checks current selection, durably claims one send, rechecks the page, fills and
-clicks once. `SEND_CLICKED` means only that the click returned. It does **not**
-mean ChatGPT accepted or finished the task. The page can briefly show a temporary
-conversation URL before its final `/c/<id>` URL appears. Observe that transition;
-never click send again to force it.
-
-```javascript
-// After the submitted turn and final conversation URL are visible:
-const outcome = await online.waitAndCollect({ tab, prepared, run, budgetMs: 55000 });
-// Log only this bounded status. Do not dump the whole page or ledger each poll.
-// Keep the bound tab through the host's markHandoff when still waiting.
 if (outcome.status === 'COLLECTED') {
-  const reply = await local.readCollected(run, { maxCharacters: 4000 });
-  // Inspect reply.text. If reply.truncated, choose which additional material is
-  // needed rather than automatically adding the entire ledger to agent context.
+  // Inspect outcome.text. If outcome.truncated, choose a larger maxCharacters
+  // rather than pasting the whole ledger into the primary agent's context.
 }
 ```
+
+`offloadTask` reads the model menu once, prepares one receipt, claims one send,
+then rechecks the page **without** opening the menu again. Re-opening the menu
+after the claim can fail and consume the only send without a click; pass a
+read-only `recheck` if you call `sendOnce` yourself. `SEND_CLICKED` means only
+that the click returned. It does **not** mean ChatGPT accepted or finished the
+task. The page can briefly show a temporary conversation URL before its final
+`/c/<id>` URL. `waitAndCollect` records `session_url` only after that URL has
+stayed the same and the matching reply is complete. It does not click send to
+force the transition, and it does not return on the first missing turn: it keeps
+waiting until the reply, a terminal page state, the host budget, or the original
+deadline.
 
 `COLLECTED` means the final rendered text was stored. The record is
 `RESULT_SEEN`, `delivery_integrity=BROWSER_OBSERVED`, `review_approved=false`.
@@ -114,8 +110,10 @@ data and review it before acting. No reply text is executed.
 ## Recovery and failure behavior
 
 Recover the **same browser and tab** using the saved target's `browser_context`
-and `tab_id`, then load `loadPrepared(originalReceiptPath)` and construct the
-transport with the original ledger and receipt. Call `waitAndCollect` only.
+and `tab_id`, then call `recoverTask` with the original ledger and receipt.
+That helper calls `waitAndCollect` only. It does not call `sendOnce`.
+`PREPARED_NOT_SENT` means the claim was never taken; `sendPrepared` can send
+that original task once, and recovery still will not send it for you.
 Recovery uses the ledger's original nonce, request hash and deadline, not caller
 supplied replacements. It can mark an uncertain submission as submitted only
 after observing the matching turn in the bound tab. Once submitted, a changed
@@ -153,9 +151,13 @@ its runtime source digest was
 The prepare helper is checked by an offline transport integration test. This
 observation does not claim a committed release or cloud CI run.
 
-The result-reader addition is covered by offline identity, hash and truncation
-tests. The runtime digest above identifies the earlier live collection, not a
-blanket live acceptance of every later helper or documentation change.
+The result reader and `offloadTask` / `recoverTask` are covered by offline
+identity, hash, truncation, single-click and failure-path tests. The runtime
+digest above identifies the earlier live collection. It was compared with the
+runtime digest of the tree that already contained the first helper and did not
+match; later edits move the digest again. `capability-manifest.json` sets
+`certifies_current_tree` to false. That observation does not certify this
+checkout.
 
 An earlier Chrome attempt stayed submission-unknown. The user reported closing
 external Chrome and explicitly requested a separate in-app attempt. Its receipt

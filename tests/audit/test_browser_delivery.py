@@ -100,6 +100,39 @@ class BrowserDeliveryTests(unittest.TestCase):
         self.assertNotEqual(self.collect(self.result() | {'text': 'different'})[0], 0)
         self.assertNotEqual(self.collect(self.result() | {'responseIds': 'different-response'})[0], 0)
 
+    def test_expired_deadline_cannot_be_extended_by_collection(self):
+        self.submit()
+        data = json.loads(self.ledger.read_text(encoding='utf-8'))
+        data['tasks'][self.task_id]['deadline_at'] = 1
+        self.ledger.write_text(json.dumps(data), encoding='utf-8')
+        before = self.ledger.read_bytes()
+        code, body = self.collect()
+        self.assertNotEqual(code, 0)
+        self.assertEqual(body['error'], 'browser_collection_not_allowed')
+        self.assertTrue(body['do_not_resend'])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        saved = json.loads(self.ledger.read_text(encoding='utf-8'))['tasks'][self.task_id]
+        self.assertEqual(saved['state'], 'SUBMITTED')
+        self.assertEqual(saved['send_attempts'], 1)
+        self.assertNotIn('browser_result', saved)
+
+    def test_other_repository_cannot_share_the_ledger(self):
+        before = self.ledger.read_bytes()
+        code, body = self.call('prepare', '--task-type', 'RESEARCH', '--repository', 'other/repo',
+            '--source-sha', 'b' * 40, '--source-ref', 'main', '--orchestration', 'other-project')
+        self.assertNotEqual(code, 0)
+        self.assertEqual(body['error'], 'ledger_repository_mismatch')
+        self.assertFalse(body['ledger_mutated'])
+        self.assertTrue(body['do_not_resend'])
+        self.assertFalse(body['replacement_prepared'])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        code, same = self.call('prepare', '--task-type', 'RESEARCH', '--repository', 'example/repo',
+            '--source-sha', 'c' * 40, '--source-ref', 'main', '--orchestration', 'same-project')
+        self.assertEqual(code, 0, same)
+        tasks = json.loads(self.ledger.read_text(encoding='utf-8'))['tasks']
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual(tasks[self.task_id]['state'], 'PREPARED')
+
     def test_browser_delivery_cannot_be_git_approved(self):
         self.submit()
         self.assertNotEqual(self.call('verify', '--task', self.task_id, '--remote',

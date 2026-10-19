@@ -471,7 +471,16 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     ledger = open_ledger(Path(args.ledger), create=True)
     try:
         record = ledger.prepare(manifest)
-    except (ValueError, PermissionError) as exc:
+    except ValueError as exc:
+        if str(exc) == "ledger_repository_mismatch":
+            return emit({
+                "error": "ledger_repository_mismatch",
+                "do_not_resend": True,
+                "replacement_prepared": False,
+                "ledger_mutated": False,
+            }, 3)
+        return emit({"error": str(exc)}, 3)
+    except PermissionError as exc:
         return emit({"error": str(exc)}, 3)
     if record["state"] == "BLOCKED":
         return emit({"task_id": record["task_id"], "state": "BLOCKED", "do_not_resend": True}, 3)
