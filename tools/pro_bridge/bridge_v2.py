@@ -8,6 +8,7 @@ exactly-once guarantee.
 from __future__ import annotations
 
 import ctypes
+import errno
 import hashlib
 import json
 import math
@@ -91,6 +92,79 @@ class LockTimeout(TimeoutError):
 class StaleRecord(RuntimeError):
     def __init__(self) -> None:
         super().__init__("stale_record")
+
+
+class PersistenceError(OSError):
+    """Ledger bytes were not confirmed. This never authorizes a send."""
+
+    def __init__(self, outcome: str) -> None:
+        if outcome not in {"original_intact", "uncertain"}:
+            raise ValueError("persistence outcome")
+        self.outcome = outcome
+        super().__init__("critical_persistence_failed")
+
+
+# Short enough to stay inside an existing operation budget. WinError 5 is the
+# replace result observed when a Windows handle denies delete sharing; it is
+# also what a permanent ACL denial looks like, so the budget stays bounded.
+_REPLACE_BUDGET_SECONDS = 0.25
+_REPLACE_DELAYS = (0.02, 0.04, 0.08, 0.08)
+_TRANSIENT_WINERRORS = frozenset({5, 32, 33, 1224})
+_TRANSIENT_ERRNOS = frozenset({errno.EPERM, errno.EACCES, errno.EBUSY})
+_UNREAD = object()
+
+
+def _transient_replace_error(exc: BaseException) -> bool:
+    """Sharing conflicts only. Other OS errors, including ENOSPC, are final."""
+    if not isinstance(exc, OSError) or isinstance(exc, PersistenceError):
+        return False
+    winerror = getattr(exc, "winerror", None)
+    if isinstance(winerror, int):
+        return winerror in _TRANSIENT_WINERRORS
+    return getattr(exc, "errno", None) in _TRANSIENT_ERRNOS
+
+
+def _replace_deadline() -> float:
+    cap = _REPLACE_BUDGET_SECONDS
+    budget = None
+    try:
+        from process_runtime import current_budget
+        budget = current_budget()
+    except OSError:
+        budget = None
+    if budget is None:
+        return time.monotonic() + cap
+    return time.monotonic() + budget.remaining(cap, allow_zero=True)
+
+
+def _replace_durable(temporary: Path, target: Path) -> None:
+    """Atomically replace target. The previous file is never deleted first."""
+    deadline = _replace_deadline()
+    delays = iter(_REPLACE_DELAYS)
+    while True:
+        try:
+            os.replace(temporary, target)
+            return
+        except OSError as exc:
+            if not _transient_replace_error(exc):
+                raise
+            try:
+                delay = next(delays)
+            except StopIteration:
+                raise exc
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(delay, remaining))
+
+
+def _file_bytes(path: Path):
+    try:
+        if not path.exists():
+            return None
+        return path.read_bytes()
+    except OSError:
+        return _UNREAD
 
 
 def exact_result_paths(task_id: str) -> list[str]:
@@ -465,10 +539,57 @@ class Ledger:
     def _read(self) -> dict:
         return json.loads(self.path.read_text(encoding="utf-8"))
 
+    def _discard_temp(self, temporary: Path) -> None:
+        try:
+            if temporary == self.path or temporary.resolve() == self.path.resolve():
+                return
+            if temporary.is_symlink() or not temporary.is_file():
+                return
+            temporary.unlink()
+        except OSError:
+            return
+
+    def _spill(self, temporary: Path, text: str) -> bytes:
+        if temporary.is_symlink():
+            raise OSError(errno.EPERM, "ledger temporary must be a regular file")
+        temporary.write_text(text, encoding="utf-8")
+        try:
+            with temporary.open("rb+") as stream:
+                stream.flush()
+                os.fsync(stream.fileno())
+        except OSError:
+            self._discard_temp(temporary)
+            raise
+        return temporary.read_bytes()
+
+    def _classify_replace(self, before: object, expected: bytes, exc: OSError) -> None:
+        observed = _file_bytes(self.path)
+        self._discard_temp(self.path.with_suffix(".json.tmp"))
+        if observed == expected:
+            return
+        if observed is not _UNREAD and observed == before:
+            raise PersistenceError("original_intact") from exc
+        raise PersistenceError("uncertain") from exc
+
     def _write(self, data: dict) -> None:
+        text = json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2)
         temporary = self.path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
-        os.replace(temporary, self.path)
+        before = _file_bytes(self.path)
+        try:
+            expected = self._spill(temporary, text)
+        except OSError as exc:
+            if before is _UNREAD:
+                raise PersistenceError("uncertain") from exc
+            raise PersistenceError("original_intact") from exc
+        try:
+            _replace_durable(temporary, self.path)
+        except OSError as exc:
+            self._classify_replace(before, expected, exc)
+            return
+        if _file_bytes(self.path) != expected:
+            self._discard_temp(temporary)
+            raise PersistenceError("uncertain")
+        self._discard_temp(temporary)
 
     def prepare(self, manifest: dict) -> dict:
         self._validate_manifest(manifest)

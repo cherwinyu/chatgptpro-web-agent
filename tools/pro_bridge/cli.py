@@ -1432,6 +1432,22 @@ def main(argv: list[str] | None = None) -> int:
             with process_runtime.operation_budget(args.timeout_seconds):
                 return args.func(args)
         return args.func(args)
+    except bridge_v2.PersistenceError as exc:
+        return emit(
+            {
+                "error": "critical_persistence_failed",
+                "persistence_outcome": exc.outcome,
+                "do_not_resend": True,
+                "automatic_high_risk_continue": False,
+                "recovery": "read_only_reconcile",
+                "send_authorized": False,
+                "replacement_prepared": False,
+                "replacement_ledger_created": False,
+                "command_succeeded": False,
+                "review_approved": False,
+            },
+            4,
+        )
     except bridge_v2.TaskNotFound:
         return emit(
             {
@@ -1475,6 +1491,16 @@ if __name__ == "__main__":
     except bridge_v2.StaleRecord:
         print(json.dumps({"error": "stale_record", "do_not_resend": True}))
         raise SystemExit(2)
+    except bridge_v2.PersistenceError as exc:
+        print(json.dumps({
+            "error": "critical_persistence_failed",
+            "persistence_outcome": exc.outcome,
+            "do_not_resend": True,
+            "automatic_high_risk_continue": False,
+            "recovery": "read_only_reconcile",
+            "send_authorized": False,
+        }, ensure_ascii=False, sort_keys=True))
+        raise SystemExit(4)
     except subprocess.CalledProcessError:
         raise
     except Exception as exc:
