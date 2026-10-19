@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md) · [Security](SECURITY.md) · [License](LICENSE)
 
-This is a **noncommercial research preview** of `cherwinyu/chatgptpro-web-agent`, not an OSI-approved open-source project, not an approved public release, and not a production service. The license text is source-available PolyForm Noncommercial 1.0.0. PolyForm Noncommercial is not OSI Open Source. The permitted license scope is limited to rights the licensor controls. Third-party rights are not cleared by accepting a change. Any proposed third-party snippet must include provenance and all required notices, or it must stay out of the tree.
+This is a **publicly available noncommercial research preview** of `cherwinyu/chatgptpro-web-agent` under PolyForm Noncommercial 1.0.0. It is not an OSI-approved open-source project, no formal versioned Release has been published, and it is not a production service. The license text is source-available PolyForm Noncommercial 1.0.0. PolyForm Noncommercial is not OSI Open Source. The permitted license scope is limited to rights the licensor controls. Third-party rights are not cleared by accepting a change. Any proposed third-party snippet must include provenance and all required notices, or it must stay out of the tree.
 
 Use new branches and synthetic fixtures. For Windows (Python 3.12, Git 2.32+), run the same offline checks as `.github/workflows/offline.yml`:
 
@@ -19,4 +19,4 @@ The CI workflow must not contact a live model/page or use real receipts, credent
 
 Report reproducible behavior, environment versions and the exact commit SHA of this repository, not historical internal commits. Preserve at-most-once semantics: an unknown submission cannot authorize retries, a new task or deadline extension.
 
-Proposals that change hosted-service interaction, brand use, or publication status must go through separate scope and authorization review. A passing CI run is never publication approval, rights clearance, or brand permission. Repository visibility is not a substitute for that review.
+Proposals that change hosted-service interaction, brand use, or a formal Release must go through separate scope and authorization review. A passing CI run is not a versioned Release, rights clearance, or brand permission. Public source availability is not a substitute for that review.
