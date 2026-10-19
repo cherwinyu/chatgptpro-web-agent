@@ -10,7 +10,7 @@ import { join, win32 as win32Path } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { readChatGPTPage } from '../../adapters/generic/browser_host.mjs';
-import { offloadTask, recoverTask, sendPrepared, waitAndCollect, readOnlyNewChat, readStandaloneChat, observeNewChat, selectionLinesFromTexts, CHINESE_ORDINARY_CHAT } from '../../adapters/generic/online_host.mjs';
+import { offloadTask, recoverTask, sendPrepared, waitAndCollect, readOnlyNewChat, readStandaloneChat, observeNewChat, selectionLinesFromTexts, bindMenuEvidence, SELECTION_EVIDENCE_TTL_SECONDS, CHINESE_ORDINARY_CHAT } from '../../adapters/generic/online_host.mjs';
 function fixture() {
   const events = [];
   const target = { tab_id: 'tab', mode: 'CHAT', model_label: 'Observed', effort_label: 'Observed' };
@@ -220,6 +220,14 @@ test('submitted recovery refuses a different conversation without collecting', a
   assert.deepEqual(commands.map(item => item[0]), ['status']);
 });
 
+function menuEvidence(overrides = {}) {
+  const now = Date.now() / 1000;
+  return { mode: 'CHAT', project_id: null, conversation_id: 'NEW', browser_context: 'browser', tab_id: 'tab',
+    model_label: 'GPT-6', effort_label: 'Pro', model_evidence_source: 'preclaim_menu', menu_model_observed: true,
+    closed_control_confirms_model: false, concurrent_model_switch_ruled_out: false, observed_at: now, task_id: 'task-1',
+    logged_in: true, composer_ready: true, selection_unambiguous: true, page_url: 'https://chatgpt.com/', ...overrides };
+}
+
 test('read-only recheck reads the closed control and does not reuse cached labels', async () => {
   let evaluations = 0;
   let clicks = 0;
@@ -228,17 +236,28 @@ test('read-only recheck reads the closed control and does not reuse cached label
     evaluate: async () => { evaluations += 1; return ready(['Live model', 'Live effort']); },
     getByRole: () => { clicks += 1; return { click: async () => { clicks += 1; } }; },
   } };
-  const binding = { tab_id: 'tab', browser_context: 'browser', model_label: 'Cached model', effort_label: 'Cached effort' };
-  const fresh = await readOnlyNewChat(tab, 'browser', binding);
+  const cached = { tab_id: 'tab', browser_context: 'browser', model_label: 'Cached model', effort_label: 'Cached effort' };
+  await assert.rejects(readOnlyNewChat(tab, 'browser', cached), /MODEL_EVIDENCE_REQUIRED/);
+  assert.equal(evaluations, 0);
+  assert.equal(clicks, 0);
+  const evidence = menuEvidence({ model_label: 'Live model', effort_label: 'Live effort', closed_control_confirms_model: true });
+  const fresh = await readOnlyNewChat(tab, 'browser', evidence);
   assert.equal(fresh.model_label, 'Live model');
   assert.equal(fresh.effort_label, 'Live effort');
+  assert.equal(fresh.model_observed_on_recheck, true);
+  assert.equal(fresh.model_evidence_source, 'closed_control');
+  assert.notEqual(fresh.model_label, 'Cached model');
   assert.equal(evaluations, 1);
   assert.equal(clicks, 0);
   assert.equal(CHINESE_ORDINARY_CHAT.composer.includes('textbox'), true);
   tab.playwright.evaluate = async () => ready(['选择 ChatGPT 模型']);
-  await assert.rejects(readOnlyNewChat(tab, 'browser', binding), /SELECTION_NOT_OBSERVABLE/);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', evidence), /TARGET_CHANGED_AFTER_CLAIM/);
+  tab.playwright.evaluate = async () => ready([]);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', evidence), /SELECTION_NOT_OBSERVABLE/);
   tab.playwright.evaluate = async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: false, login: true, selection_lines: ['Live model', 'Live effort'] });
-  await assert.rejects(readOnlyNewChat(tab, 'browser', binding), /PAGE_NOT_READY/);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', evidence), /PAGE_NOT_READY/);
+  tab.playwright.evaluate = async () => ready(['Pro']);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', { ...cached, model_label: 'GPT-6', effort_label: 'Pro' }), /MODEL_EVIDENCE_REQUIRED/);
 });
 
 function hostObservation(tabId, browserId) {
@@ -246,6 +265,8 @@ function hostObservation(tabId, browserId) {
   return { mode: 'CHAT', project_id: null, conversation_id: 'NEW', browser_context: browserId, tab_id: tabId,
     model_label: 'Observed model', effort_label: 'Observed effort', observed_at: now, logged_in: true,
     composer_ready: true, selection_unambiguous: true, page_url: 'https://chatgpt.com/',
+    model_evidence_source: 'preclaim_menu', menu_model_observed: true, closed_control_confirms_model: false,
+    concurrent_model_switch_ruled_out: false, task_id: null,
     mode_evidence: 'synthetic', project_evidence: 'synthetic', conversation_evidence: 'synthetic',
     selection_evidence: { mode: 'CHAT', observed_at: now, logged_in: true, permission_confirmed: true,
       selection_unambiguous: true, locked: false, evidence_ref: 'synthetic', control_kind: 'menu',
@@ -272,7 +293,7 @@ test('offloadTask returns one bounded reply and recovery repeats its hash', { ti
     evaluate: async fn => fn === readChatGPTPage
       ? { url: FINAL_URL, status: 'FINAL_CANDIDATE', turnId: 'turn', responseIds: 'reply', fingerprint: 'abc', contentLength: answer.length, text: answer }
       : { url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
-        selection_lines: [observation.model_label, observation.effort_label] },
+        selection_lines: [observation.effort_label] },
     locator: () => ({ fill: async () => {}, click: async () => { clicks += 1; } }),
   } };
   const result = await offloadTask({ tab, browserId, run, evidenceDirectory, repository: 'example/repo',
@@ -328,7 +349,7 @@ test('an unsent prepare is not sent by recovery, and a lost click is not repeate
   let clicks = 0;
   const tab = { id: 'synthetic-tab', playwright: {
     evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
-      selection_lines: [observation.model_label, observation.effort_label] }),
+      selection_lines: [observation.effort_label] }),
     locator: () => ({ fill: async () => {}, click: async () => { clicks += 1; throw Error('lost click'); } }),
   } };
   const sent = await sendPrepared({ tab, browserId, run, observe: async () => observation, composer: 'box', sendButton: 'send' });
@@ -344,6 +365,65 @@ test('an unsent prepare is not sent by recovery, and a lost click is not repeate
   assert.equal(clicks, 1);
 });
 
+test('an unsent continuation re-reads selection evidence and claimed recovery does not send', { timeout: 60000 }, async t => {
+  const evidenceDirectory = mkdtempSync(join(tmpdir(), 'web-agent-reverify-'));
+  t.after(() => rmSync(evidenceDirectory, { recursive: true, force: true }));
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const taskFile = join(evidenceDirectory, 'task.txt');
+  writeFileSync(taskFile, 'Synthetic read-only note.\n', 'utf8');
+  const run = localTransport({ root, ledger: join(evidenceDirectory, 'ledger'), evidenceDirectory,
+    receiptPath: join(evidenceDirectory, 'prepare.json'), ...pythonLauncher() });
+  const browserId = 'synthetic-browser';
+  const observation = hostObservation('synthetic-tab', browserId);
+  await prepareOnline({ run, observation, evidenceDirectory, repository: 'example/repo', sourceSha: 'a'.repeat(40),
+    sourceRef: 'main', taskFile, orchestration: 'reverify' });
+  const pending = await recoverTask({ run });
+  assert.equal(pending.status, 'PREPARED_NOT_SENT');
+  assert.equal(pending.doNotResend, false);
+  let observations = 0;
+  let clicks = 0;
+  const tab = { id: 'synthetic-tab', playwright: {
+    evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
+      selection_lines: [observation.effort_label] }),
+    getByRole: () => { throw Error('MENU_OPENED'); },
+    locator: () => ({ fill: async () => {}, click: async () => { clicks += 1; throw Error('lost click'); } }),
+  } };
+  const expired = await sendPrepared({ tab, browserId, run, observe: async () => {
+    observations += 1;
+    return { ...observation, observed_at: Date.now() / 1000 - SELECTION_EVIDENCE_TTL_SECONDS - 5 };
+  }, composer: 'box', sendButton: 'send' });
+  assert.equal(expired.status, 'NOT_SENT');
+  assert.equal(expired.error, 'SELECTION_EVIDENCE_EXPIRED');
+  assert.equal(expired.doNotResend, false);
+  assert.equal(clicks, 0);
+  const foreign = await sendPrepared({ tab, browserId, run, observe: async () => {
+    observations += 1;
+    return { ...observation, task_id: 'other-task', observed_at: Date.now() / 1000 };
+  }, composer: 'box', sendButton: 'send' });
+  assert.equal(foreign.status, 'NOT_SENT');
+  assert.equal(foreign.error, 'SELECTION_EVIDENCE_TASK_MISMATCH');
+  assert.equal(clicks, 0);
+  const sent = await sendPrepared({ tab, browserId, run, observe: async () => {
+    observations += 1;
+    return { ...observation, observed_at: Date.now() / 1000 };
+  }, composer: 'box', sendButton: 'send' });
+  assert.equal(sent.status, 'SUBMISSION_UNKNOWN');
+  assert.equal(sent.doNotResend, true);
+  assert.equal(clicks, 1);
+  assert.equal(observations, 3);
+  const blocked = await sendPrepared({ tab, browserId, run, observe: async () => {
+    observations += 1;
+    return { ...observation, observed_at: Date.now() / 1000 };
+  }, composer: 'box', sendButton: 'send' });
+  assert.equal(blocked.status, 'SEND_NOT_AVAILABLE');
+  assert.equal(observations, 3);
+  assert.equal(clicks, 1);
+  const recovered = await recoverTask({ tab: { id: 'synthetic-tab', url: async () => { throw Error('gone'); } }, run, budgetMs: 200, intervalMs: 5, urlQuietMs: 0 });
+  assert.equal(recovered.status, 'TAB_GONE');
+  assert.equal(recovered.doNotResend, true);
+  assert.equal(clicks, 1);
+});
+
 test('a model that is not actually selected never prepares or sends', async t => {
   const evidenceDirectory = mkdtempSync(join(tmpdir(), 'web-agent-model-'));
   t.after(() => rmSync(evidenceDirectory, { recursive: true, force: true }));
@@ -351,11 +431,16 @@ test('a model that is not actually selected never prepares or sends', async t =>
   const receiptPath = join(evidenceDirectory, 'prepare.json');
   const run = localTransport({ root, ledger: join(evidenceDirectory, 'ledger'), evidenceDirectory, receiptPath, ...pythonLauncher() });
   const observation = hostObservation('synthetic-tab', 'synthetic-browser');
-  await assert.rejects(offloadTask({ tab: { id: 'synthetic-tab' }, browserId: 'synthetic-browser', run,
-    evidenceDirectory, repository: 'example/repo', sourceSha: 'a'.repeat(40), sourceRef: 'main',
-    taskFile: join(evidenceDirectory, 'missing.txt'), orchestration: 'wrong-model',
-    requestedModel: 'GPT-6', requestedEffort: 'Pro', observe: async () => observation,
-    composer: 'box', sendButton: 'send' }), /REQUESTED_SELECTION_NOT_VISIBLE/);
+  const common = { tab: { id: 'synthetic-tab' }, browserId: 'synthetic-browser', run, evidenceDirectory,
+    repository: 'example/repo', sourceSha: 'a'.repeat(40), sourceRef: 'main',
+    taskFile: join(evidenceDirectory, 'missing.txt'), composer: 'box', sendButton: 'send' };
+  await assert.rejects(offloadTask({ ...common, orchestration: 'wrong-model', requestedModel: 'GPT-6',
+    requestedEffort: 'Pro', observe: async () => observation }), /REQUESTED_SELECTION_NOT_VISIBLE/);
+  await assert.rejects(offloadTask({ ...common, orchestration: 'wrong-effort', requestedModel: observation.model_label,
+    requestedEffort: 'Low', observe: async () => observation }), /REQUESTED_SELECTION_NOT_VISIBLE/);
+  await assert.rejects(offloadTask({ ...common, orchestration: 'requested-label', requestedModel: observation.model_label,
+    requestedEffort: observation.effort_label, observe: async () => ({ ...observation, model_evidence_source: 'request',
+      menu_model_observed: false }) }), /MODEL_EVIDENCE_REQUIRED/);
   assert.equal(existsSync(receiptPath), false);
   assert.equal(existsSync(join(evidenceDirectory, 'ledger', 'ledger.json')), false);
 });
@@ -408,35 +493,99 @@ function evaluateSerialized(fn, document) {
 
 test('serialized new-chat reader sees two visible lines and does not keep saved labels', async () => {
   assert.equal(readStandaloneChat.toString().includes('selectionLinesFromTexts'), false);
+  assert.equal(readStandaloneChat.toString().includes('bindMenuEvidence'), false);
   const seen = evaluateSerialized(readStandaloneChat, closedControlPage());
   assert.deepEqual(seen.selection_lines, ['GPT-6', 'Pro']);
   assert.deepEqual(evaluateSerialized(readStandaloneChat, closedControlPage({ flatText: 'GPT-6\nPro' })).selection_lines, ['GPT-6', 'Pro']);
+  assert.deepEqual(evaluateSerialized(readStandaloneChat, closedControlPage({ modelLines: ['Pro'] })).selection_lines, ['Pro']);
   assert.equal(seen.chat, true);
   assert.equal(seen.work, true);
   assert.equal(seen.ready, true);
   assert.equal(seen.login, false);
+  const cached = { tab_id: 'tab', browser_context: 'browser', model_label: 'Cached model', effort_label: 'Cached effort' };
   const tab = { id: 'tab', playwright: { evaluate: async fn => evaluateSerialized(fn, closedControlPage()) } };
-  const fresh = await readOnlyNewChat(tab, 'browser', {
-    tab_id: 'tab', browser_context: 'browser', model_label: 'Cached model', effort_label: 'Cached effort',
-  });
-  assert.equal(fresh.model_label, 'GPT-6');
-  assert.equal(fresh.effort_label, 'Pro');
+  await assert.rejects(readOnlyNewChat(tab, 'browser', cached), /MODEL_EVIDENCE_REQUIRED/);
+  const confirmed = await readOnlyNewChat(tab, 'browser', menuEvidence({ closed_control_confirms_model: true }));
+  assert.equal(confirmed.model_label, 'GPT-6');
+  assert.equal(confirmed.effort_label, 'Pro');
+  assert.equal(confirmed.model_observed_on_recheck, true);
+  assert.equal(confirmed.model_evidence_source, 'closed_control');
+  const effortPage = { id: 'tab', playwright: { evaluate: async fn => evaluateSerialized(fn, closedControlPage({ modelLines: ['Pro'] })) } };
+  const carried = await readOnlyNewChat(effortPage, 'browser', menuEvidence());
+  assert.equal(carried.carried_model_label, 'GPT-6');
+  assert.equal(Object.hasOwn(carried, 'model_label'), false);
   const incomplete = [
-    closedControlPage({ modelLines: ['GPT-6'] }),
-    closedControlPage({ modelLines: ['GPT-6', 'Pro', 'Extra'] }),
-    closedControlPage({ modelLines: ['选择 ChatGPT 模型'] }),
-    closedControlPage({ pickers: 2 }),
-    closedControlPage({ hideLine: true }),
+    [closedControlPage({ modelLines: ['GPT-6'] }), /TARGET_CHANGED_AFTER_CLAIM/],
+    [closedControlPage({ modelLines: ['Pro', 'GPT-6'] }), /TARGET_CHANGED_AFTER_CLAIM/],
+    [closedControlPage({ modelLines: ['GPT-6', 'Pro', 'Extra'] }), /SELECTION_NOT_OBSERVABLE/],
+    [closedControlPage({ modelLines: ['选择 ChatGPT 模型'] }), /SELECTION_NOT_OBSERVABLE/],
+    [closedControlPage({ pickers: 2 }), /SELECTION_NOT_OBSERVABLE/],
+    [closedControlPage({ hideLine: true }), /TARGET_CHANGED_AFTER_CLAIM/],
   ];
-  for (const document of incomplete) {
+  for (const [document, expected] of incomplete) {
     const page = evaluateSerialized(readStandaloneChat, document);
     assert.notDeepEqual(page.selection_lines, ['Cached model', 'Cached effort']);
-    assert.notEqual(page.selection_lines.length, 2);
     const refused = { id: 'tab', playwright: { evaluate: async fn => evaluateSerialized(fn, document) } };
-    await assert.rejects(readOnlyNewChat(refused, 'browser', {
-      tab_id: 'tab', browser_context: 'browser', model_label: 'Cached model', effort_label: 'Cached effort',
-    }), /SELECTION_NOT_OBSERVABLE/);
+    await assert.rejects(readOnlyNewChat(refused, 'browser', cached), /MODEL_EVIDENCE_REQUIRED/);
+    await assert.rejects(readOnlyNewChat(refused, 'browser', menuEvidence()), expected);
   }
+});
+
+test('closed control showing only the effort can continue from a fresh menu observation', async () => {
+  const evidence = {
+    mode: 'CHAT', project_id: null, conversation_id: 'NEW', browser_context: 'browser', tab_id: 'tab',
+    model_label: 'GPT-6', effort_label: 'Pro', model_evidence_source: 'preclaim_menu', menu_model_observed: true,
+    closed_control_confirms_model: false, concurrent_model_switch_ruled_out: false,
+    observed_at: Date.now() / 1000, task_id: 'task-1',
+  };
+  const tab = { id: 'tab', playwright: { evaluate: async () => ({
+    url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false, selection_lines: ['Pro'],
+  }) } };
+  const fresh = await readOnlyNewChat(tab, 'browser', evidence);
+  assert.equal(fresh.effort_label, 'Pro');
+  assert.equal(fresh.carried_model_label, 'GPT-6');
+  assert.equal(fresh.model_observed_on_recheck, false);
+  assert.equal(Object.hasOwn(fresh, 'model_label'), false);
+  assert.equal(fresh.concurrent_model_switch_ruled_out, false);
+  assert.equal(fresh.effort_evidence_source, 'closed_control');
+  assert.equal(fresh.model_evidence_source, 'preclaim_menu');
+  assert.equal(fresh.selection_unambiguous, false);
+  assert.equal(fresh.menu_model_observed, true);
+});
+
+test('closed-state Pro without menu evidence does not become a model', async () => {
+  let reads = 0;
+  const tab = { id: 'tab', playwright: { evaluate: async () => { reads += 1; return {
+    url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false, selection_lines: ['Pro'],
+  }; } } };
+  const requested = { tab_id: 'tab', browser_context: 'browser', model_label: 'GPT-6', effort_label: 'Pro',
+    model_evidence_source: 'request', menu_model_observed: false, task_id: 'task-1', observed_at: Date.now() / 1000 };
+  await assert.rejects(readOnlyNewChat(tab, 'browser', requested), /MODEL_EVIDENCE_REQUIRED/);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', { ...menuEvidence(), menu_model_observed: false }), /MODEL_EVIDENCE_REQUIRED/);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', { ...menuEvidence(), concurrent_model_switch_ruled_out: true }), /MODEL_EVIDENCE_REQUIRED/);
+  assert.equal(reads, 0);
+});
+
+test('expired, mismatched and cross-task menu evidence is refused before the page is read', async () => {
+  assert.equal(SELECTION_EVIDENCE_TTL_SECONDS, 120);
+  let reads = 0;
+  const tab = { id: 'tab', playwright: { evaluate: async () => { reads += 1; return {
+    url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false, selection_lines: ['Pro'],
+  }; } } };
+  const evidence = menuEvidence();
+  await assert.rejects(readOnlyNewChat(tab, 'browser', { ...evidence, observed_at: Date.now() / 1000 - 121 }), /SELECTION_EVIDENCE_EXPIRED/);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', { ...evidence, observed_at: Date.now() / 1000 + 30 }), /SELECTION_EVIDENCE_EXPIRED/);
+  await assert.rejects(readOnlyNewChat(tab, 'other-browser', evidence), /BOUND_TAB_MISMATCH/);
+  await assert.rejects(readOnlyNewChat({ id: 'other-tab' }, 'browser', evidence), /BOUND_TAB_MISMATCH/);
+  await assert.rejects(readOnlyNewChat(tab, 'browser', evidence, { taskId: 'task-2' }), /SELECTION_EVIDENCE_TASK_MISMATCH/);
+  assert.throws(() => bindMenuEvidence(evidence, { browserId: 'browser', tabId: 'tab', taskId: 'task-2' }), /SELECTION_EVIDENCE_TASK_MISMATCH/);
+  assert.equal(reads, 0);
+  const f = fixture();
+  f.prepared.browser_target = { mode: 'CHAT', project_id: null, conversation_id: 'NEW', browser_context: 'browser',
+    tab_id: 'tab', model_label: 'GPT-6', effort_label: 'Pro' };
+  f.observe = async () => menuEvidence({ observed_at: Date.now() / 1000 - 121 });
+  await assert.rejects(sendOnce(f), /SELECTION_EVIDENCE_EXPIRED/);
+  assert.deepEqual(f.events.map(item => item[0]), ['status', 'prompt']);
 });
 
 test('closed-control lines keep the model and effort and drop the instruction', () => {
@@ -446,34 +595,111 @@ test('closed-control lines keep the model and effort and drop the instruction', 
   assert.deepEqual(selectionLinesFromTexts('选择 ChatGPT 模型', ['GPT-6 Pro'], ''), ['GPT-6 Pro']);
 });
 
-test('a changed closed-control selection after the claim does not type or click', async () => {
+function claimedPage(lines, page = {}) {
   const f = fixture();
   let writes = 0;
+  let claimed = false;
+  const evidence = menuEvidence({ model_label: 'Observed', effort_label: 'Observed', task_id: 'synthetic' });
+  f.prepared.browser_target = { mode: 'CHAT', project_id: null, conversation_id: 'NEW', browser_context: 'browser',
+    tab_id: 'tab', model_label: 'Observed', effort_label: 'Observed' };
+  f.observe = async () => evidence;
   f.tab.playwright.locator = () => ({ fill: async () => { writes += 1; }, click: async () => { writes += 1; } });
+  f.tab.playwright.getByRole = () => { throw Error('MENU_OPENED'); };
   f.tab.playwright.evaluate = async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
-    selection_lines: ['Other model', 'Low'] });
-  f.recheck = () => readOnlyNewChat(f.tab, 'browser', { tab_id: 'tab', browser_context: 'browser' });
-  await assert.rejects(sendOnce(f), /TARGET_CHANGED/);
-  assert.equal(writes, 0);
-  assert.deepEqual(f.events.map(item => item[0]), ['status', 'prompt', 'claim', 'mark-unknown']);
+    selection_lines: lines, ...page });
+  f.recheck = () => readOnlyNewChat(f.tab, 'browser', evidence);
+  const original = f.run;
+  f.run = async command => {
+    if (command === 'claim') claimed = true;
+    if (command === 'status' && claimed) return { code: 0, value: { task_id: 'synthetic', state: 'SUBMISSION_UNKNOWN' } };
+    return original(command);
+  };
+  f.run.receiptPath = 'synthetic-receipt';
+  return { ...f, writes: () => writes };
+}
+
+test('a changed closed-control selection after the claim does not type or click', async () => {
+  const effort = claimedPage(['Low']);
+  await assert.rejects(sendOnce(effort), /TARGET_CHANGED_AFTER_CLAIM/);
+  assert.equal(effort.writes(), 0);
+  assert.deepEqual(effort.events.map(item => item[0]), ['status', 'prompt', 'claim', 'mark-unknown']);
+  await assert.rejects(sendOnce(effort), /ORIGINAL_TASK_NOT_PREPARED/);
+  assert.equal(effort.events.filter(item => item[0] === 'claim').length, 1);
+  assert.equal(effort.writes(), 0);
+  const page = claimedPage(['Observed'], { chat: false });
+  await assert.rejects(sendOnce(page), /PAGE_NOT_READY/);
+  assert.equal(page.writes(), 0);
+  assert.deepEqual(page.events.map(item => item[0]), ['status', 'prompt', 'claim', 'mark-unknown']);
+  await assert.rejects(sendOnce(page), /ORIGINAL_TASK_NOT_PREPARED/);
+  assert.equal(page.events.filter(item => item[0] === 'claim').length, 1);
 });
 
-test('menu observation refuses a closed control that does not show both labels', async () => {
+test('menu observation reads the checked model and accepts an effort-only closed control', async () => {
   const clicks = [];
-  const tabFor = lines => ({ id: 'tab', playwright: {
+  const tabFor = (lines, checked = ['GPT-6']) => ({ id: 'tab', playwright: {
     getByRole: (role, options) => {
       clicks.push(role + ':' + (options?.name ?? ''));
-      if (role === 'menuitemradio') return { all: async () => [{ getAttribute: async () => 'true', innerText: async () => 'GPT-6', click: async () => clicks.push('radio') }] };
+      if (role === 'menuitemradio') return { all: async () => checked.map(text => ({
+        getAttribute: async () => 'true', innerText: async () => text, click: async () => clicks.push('radio'),
+      })) };
       return { click: async () => clicks.push('click:' + options?.name), innerText: async () => 'Pro', press: async () => clicks.push('escape') };
     },
     evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false, selection_lines: lines }),
   } });
   await assert.rejects(observeNewChat(tabFor(['GPT-6']), 'browser'), /SELECTION_NOT_OBSERVABLE/);
+  await assert.rejects(observeNewChat(tabFor(['Low']), 'browser'), /SELECTION_NOT_OBSERVABLE/);
+  await assert.rejects(observeNewChat(tabFor(['Pro'], ['GPT-6', 'Other']), 'browser'), /AMBIGUOUS_MODEL/);
+  await assert.rejects(observeNewChat(tabFor(['Pro'], []), 'browser'), /MODEL_NOT_SELECTED/);
   assert.equal(clicks.includes('click:发送'), false);
+  const effortOnly = await observeNewChat(tabFor(['Pro']), 'browser');
+  assert.equal(effortOnly.model_label, 'GPT-6');
+  assert.equal(effortOnly.effort_label, 'Pro');
+  assert.equal(effortOnly.model_evidence_source, 'preclaim_menu');
+  assert.equal(effortOnly.menu_model_observed, true);
+  assert.equal(effortOnly.closed_control_confirms_model, false);
+  assert.equal(effortOnly.concurrent_model_switch_ruled_out, false);
+  assert.equal(effortOnly.task_id, null);
+  assert.equal(effortOnly.selection_unambiguous, true);
   const observed = await observeNewChat(tabFor(['GPT-6', 'Pro']), 'browser');
   assert.equal(observed.model_label, 'GPT-6');
   assert.equal(observed.effort_label, 'Pro');
+  assert.equal(observed.closed_control_confirms_model, true);
   assert.equal(clicks.includes('click:发送'), false);
+});
+
+test('after the claim the model menu stays closed and send is clicked once', async () => {
+  const roles = [];
+  const tab = { id: 'tab', playwright: {
+    getByRole: (role, options) => {
+      roles.push('menu:' + role);
+      if (role === 'menuitemradio') return { all: async () => [{ getAttribute: async () => 'true', innerText: async () => 'GPT-6', click: async () => roles.push('radio') }] };
+      return { click: async () => roles.push('click'), innerText: async () => 'Pro', press: async () => roles.push('escape') };
+    },
+    evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false, selection_lines: ['Pro'] }),
+    locator: selector => ({ fill: async () => roles.push('fill'), click: async () => roles.push('send:' + selector) }),
+  } };
+  const observed = await observeNewChat(tab, 'browser');
+  const bound = bindMenuEvidence(observed, { browserId: 'browser', tabId: 'tab', taskId: 'synthetic' });
+  const menuOps = roles.length;
+  const events = [];
+  const prepared = { task_id: 'synthetic', prompt: 'immutable prompt', browser_target: {
+    mode: 'CHAT', project_id: null, conversation_id: 'NEW', browser_context: 'browser', tab_id: 'tab',
+    model_label: 'GPT-6', effort_label: 'Pro' } };
+  const run = async (command, args, extra) => {
+    events.push([command, extra?.observation?.model_label ?? null]);
+    return { code: 0, value: command === 'prompt' ? prepared.prompt : { claimed: true, task_id: 'synthetic', state: 'PREPARED' } };
+  };
+  run.receiptPath = 'synthetic-receipt';
+  const sent = await sendOnce({ tab, prepared, run, observe: async () => bound,
+    recheck: () => readOnlyNewChat(tab, 'browser', bound), composer: 'box', sendButton: 'send' });
+  assert.equal(sent.status, 'SEND_CLICKED');
+  assert.equal(sent.doNotResend, true);
+  assert.equal(roles.slice(menuOps).some(item => item.startsWith('menu:')), false);
+  assert.equal(roles.filter(item => item.startsWith('send:')).length, 1);
+  assert.deepEqual(events.map(item => item[0]), ['status', 'prompt', 'claim']);
+  assert.equal(events[2][1], 'GPT-6');
+  assert.equal(bound.model_evidence_source, 'preclaim_menu');
+  assert.equal(bound.closed_control_confirms_model, false);
 });
 
 test('a slow ledger read does not turn a missing tab into a host timeout', async () => {
@@ -548,7 +774,7 @@ test('the final page read stops at the remaining budget and does not collect', {
 test('a passed deadline does not start a closed-control read', async () => {
   let reads = 0;
   const tab = { id: 'tab', playwright: { evaluate: async () => { reads += 1; return {}; } } };
-  await assert.rejects(readOnlyNewChat(tab, 'browser', { tab_id: 'tab', browser_context: 'browser' },
+  await assert.rejects(readOnlyNewChat(tab, 'browser', menuEvidence(),
     { deadlineAt: Date.now() - 1000, budgetMs: 5000 }), /TASK_DEADLINE/);
   assert.equal(reads, 0);
 });

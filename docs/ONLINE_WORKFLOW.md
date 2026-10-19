@@ -45,9 +45,13 @@ subagent. Importing the modules performs no browser or network actions.
 
 Use the client's built-in browser first. This run succeeded in the Codex in-app
 browser. The host must open a logged-in **ordinary Chat** home, outside a project,
-with an empty composer. Inspect/select the requested model and effort through
-the real UI before preparation. `observeNewChat` reads the actual selected model
-menu and effort label; it does not select a model or invent a backend ID.
+with an empty composer. `observeNewChat` is the pre-claim read. It opens the
+model menu, reads the one checked model and the effort on that menu, then
+closes the menu. The model name is that checked item. The read does not switch
+to a different model and does not invent a backend id. A closed control that
+shows only the effort is not a model observation, and `Pro` is not turned into
+a model name. `readStandaloneChat` sets `work: true` when the Work control is
+not pressed; that means ordinary Chat.
 The shipped initial-page profile currently uses Chinese UI labels. Other locales,
 project-bound starting pages and other browser hosts require separate profiles
 and acceptance. Work mode is refused.
@@ -87,9 +91,20 @@ if (outcome.status === 'COLLECTED') {
 `offloadTask` reads the model menu once, prepares one receipt, claims one send,
 then rechecks the closed model control without opening the menu again.
 Re-opening the menu after the claim can fail and consume the only send without
-a click. The recheck does not reuse the labels read before the claim. The closed
-control must show two visible lines, model then effort. If it does not, the
-helper does not type or click; an existing claim stays `SUBMISSION_UNKNOWN`.
+a click. The recheck reads the page, tab, empty composer, and the effort
+actually visible on the closed control. When that control shows only the effort,
+the model remains the menu observation from immediately before the claim:
+source `preclaim_menu`, the observation time, this task, this browser, and this
+tab. That is not a new post-claim model observation, and it is not inferred
+from `Pro`. The evidence is valid for 120 seconds. It is refused when it
+expires, when the task, browser, or tab differs, and when preflight stopped
+before the claim. An unsent receipt is verified from the menu again by
+`sendPrepared`. `recoverTask` does not send and does not reopen the menu. A
+visible effort or page change after the claim refuses the send; the existing
+claim stays `SUBMISSION_UNKNOWN`. A closed control that cannot show the model
+on its own does not rule out a person changing the model after the menu closed.
+When the closed control shows both matching labels, the recheck records the
+model from that control.
 `readStandaloneChat` is what `evaluate` serializes into the page. Its helpers are
 declared inside that function, because the page realm does not have this module.
 The offline serialization test runs that source in a fresh realm. It is not a
@@ -167,9 +182,13 @@ digest above identifies the earlier live collection. It was compared with the
 runtime digest of the tree that already contained the first helper and did not
 match; later edits move the digest again. `capability-manifest.json` sets
 `certifies_current_tree` to false. That observation does not certify this
-checkout. Later fixes to the wait budget, closed-control recheck, evidence
-paths and URL-read bounds are covered by offline fixtures. They are not a new
-live send, and this checkout still has no online acceptance of its own.
+checkout. Later fixes to the wait budget, evidence paths and URL-read bounds
+are covered by offline fixtures. The selection check keeps the model from the
+pre-claim menu when the closed control shows only the effort. That behavior is
+also an offline fixture. It is not a new live send, and this checkout still has
+no online acceptance of its own. A local preflight that opened the menu and
+then saw only the effort on the closed control is not a send and does not
+accept this checkout.
 
 An earlier Chrome attempt stayed submission-unknown. The user reported closing
 external Chrome and explicitly requested a separate in-app attempt. Its receipt
