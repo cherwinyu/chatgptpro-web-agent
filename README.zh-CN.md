@@ -1,8 +1,10 @@
-# chatgptpro-web-agent — 非商业研究预览
+# chatgptpro-web-agent
 
 [English](README.md) · [离线快速开始](docs/QUICKSTART.zh-CN.md) · [研究与使用边界](docs/RESEARCH_USE.zh-CN.md) · [许可证](LICENSE) · [安全说明](SECURITY.md)
 
-**本仓库已公开提供采用 PolyForm Noncommercial 1.0.0 许可的独立非商业研究源码。** 本仓库（`cherwinyu/chatgptpro-web-agent`）采用全新 Git 历史和严格的文件白名单，不 Fork、不克隆旧内部工程仓库。该仓库名不是 OpenAI 产品名。本项目不是 OpenAI 官方产品，也不代表获得官方背书。目前尚未发布正式版本 Release。源码公开不代表在线 ChatGPT 集成已经通过验证，也不代表适用于生产环境、获得 OpenAI 官方背书或第三方服务使用授权。
+**面向 Windows 的离线研究型 Agent 交接桥：本地至多一次发送资格、原回执与 Git 结果核验（合成数据）。不是在线 ChatGPT 客户端，也不是 OpenAI 官方产品。**
+
+本仓库是公开提供的独立非商业研究预览，采用 PolyForm Noncommercial 1.0.0 许可。本仓库（`cherwinyu/chatgptpro-web-agent`）采用全新 Git 历史和严格的文件白名单，不 Fork、不克隆旧内部工程仓库。该仓库名不是 OpenAI 产品名。本项目不是 OpenAI 官方产品，也不代表获得官方背书。目前尚未发布正式版本 Release。源码公开不代表在线 ChatGPT 集成已经通过验证，也不代表适用于生产环境、获得 OpenAI 官方背书或第三方服务使用授权。
 
 ## 当前可以验证的功能
 
