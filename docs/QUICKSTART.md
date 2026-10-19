@@ -11,7 +11,7 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 The demo creates disposable synthetic fixtures, performs no live ChatGPT send and uses no GitHub credentials. `send_authorized` must be `false` in the preview. JSON keys remain the same for English and Simplified Chinese. The project does not guarantee deployment identity unless separately supplied with a verified release manifest and trust anchor.
 
-Only local/offline use is tested. This is not permission to automate hosted AI services. [Research limitations](RESEARCH_USE.md).
+This quick start tests the local/offline demo. For the separately accepted in-app-browser workflow, see [online offloading](ONLINE_WORKFLOW.md). The demo does not authorize hosted-service access. [Research limitations](RESEARCH_USE.md).
 
 ## Verify this checkout
 

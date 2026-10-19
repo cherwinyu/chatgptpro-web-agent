@@ -11,7 +11,7 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 演示仅使用临时合成数据，不发送真实 ChatGPT 消息，也不使用 GitHub 登录凭据。预览中的 `send_authorized` 必须为 `false`；中英文机器 JSON 字段保持一致。未经独立的发行 manifest 和可信哈希验证，不宣称安装来源通过认证。
 
-只验证本地离线研究能力，不自动获得第三方网页自动化权限。详见[研究限制](RESEARCH_USE.zh-CN.md)。
+本页演示只验证离线能力。另行验收的内置浏览器任务分担见[在线流程](ONLINE_WORKFLOW.md)。演示不自动授予第三方服务访问权限，详见[研究限制](RESEARCH_USE.zh-CN.md)。
 
 ## 核对本工作区
 

@@ -31,5 +31,26 @@
       ]
     }
   ],
+  "online_offload": {
+    "status": "LOCAL_IN_APP_BROWSER_ACCEPTANCE",
+    "date": "2026-10-19",
+    "entrypoint": "adapters/generic/online_host.mjs",
+    "transport": "adapters/generic/local_transport.mjs",
+    "delivery": "browser_response",
+    "visible_model_label": "GPT-6",
+    "visible_effort_label": "Pro",
+    "send_attempts": 1,
+    "result_characters": 325,
+    "result_sha256": "a2acd364a60eb7e6593e895996825c526a495d2fb6d9d744876bfc2307950756",
+    "runtime_source_digest_at_collection": "4fe06dd107a243e016728081e311e8056f6fa12b05ee83d80632ac27ebcb9784",
+    "acceptance_scope": "One synthetic read-only task; Chinese ordinary Chat in Codex desktop in-app browser",
+    "limitations": [
+      "Other hosts/locales not accepted",
+      "No GitHub writer",
+      "No measured token saving",
+      "Local working-tree evidence, not release or cloud CI certification"
+    ],
+    "documentation": "docs/ONLINE_WORKFLOW.md"
+  },
   "model_or_fee_claim": "NOT_OBSERVABLE"
 }

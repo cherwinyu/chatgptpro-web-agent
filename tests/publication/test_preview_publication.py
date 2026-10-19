@@ -77,7 +77,8 @@ class PublicPreviewTests(unittest.TestCase):
         report=publication_audit.check(self.root)
         self.assertEqual(report['status'],'RULE_CHECKS_PASSED', report)
         self.assertFalse(report['release_approved'])
-        self.assertEqual(report['source_items'], 57)
+        names = (self.root/'PUBLIC_FILELIST.txt').read_text(encoding='utf-8').splitlines()
+        self.assertEqual(report['source_items'], len(names))
 
     def test_clean_root_does_not_import_old_ci_results_or_grant_publication(self):
         readme=(self.root/'README.md').read_text(encoding='utf-8')

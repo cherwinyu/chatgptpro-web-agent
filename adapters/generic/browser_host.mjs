@@ -48,7 +48,12 @@ function validateRequest(r) {
 export function readChatGPTPage(request) {
   const present = e => !!e && !e.closest('[hidden],[aria-hidden="true"]');
   const visible = e => present(e) && e.getClientRects().length > 0;
-  const main = document.querySelector('main');
+  // During home -> conversation navigation a stale home main can coexist with
+  // the live conversation main. Select the main owning rendered turns.
+  const owners = [...new Set([...document.querySelectorAll('[data-turn-key]')]
+    .filter(present).map(e => e.closest('main')).filter(e => e && visible(e)))];
+  if (owners.length > 1) return { url: location.href, status: 'UNKNOWN', reason: 'AMBIGUOUS_CONVERSATION' };
+  const main = owners[0] || document.querySelector('main');
   const base = { url: location.href, profile: 'chatgpt-turn-dom-v1', status: 'UNKNOWN' };
   if (!main) return { ...base, reason: 'NO_MAIN' };
   const controls = [...main.querySelectorAll('button,[role="button"]')].filter(visible);
@@ -79,7 +84,7 @@ export function readChatGPTPage(request) {
   }
   const active = controls.some(e => /^(Stop|Stop generating|停止|停止生成|停止回复)$/i.test(name(e))) ||
     [...main.querySelectorAll('[aria-busy="true"]')].some(visible);
-  if (active || ['streaming', 'running', 'pending', 'thinking'].includes(state)) {
+  if (active || ['streaming', 'running', 'pending', 'thinking', 'in_progress'].includes(state)) {
     return { ...base, status: 'RUNNING' };
   }
   const replies = [...turn.querySelectorAll('[data-content-search-unit-key]')]
@@ -98,7 +103,8 @@ export function readChatGPTPage(request) {
   const signature = text + reply.innerHTML;
   for (let i = 0; i < signature.length; i++) hash = Math.imul(hash ^ signature.charCodeAt(i), 16777619) >>> 0;
   return { ...base, status: 'FINAL_CANDIDATE', turnId: turn.getAttribute('data-turn-key'),
-    responseIds: ids, fingerprint: hash.toString(16), contentLength: signature.length };
+    responseIds: ids, fingerprint: hash.toString(16), contentLength: signature.length,
+    ...(request.includeText === true ? { text: reply.innerText } : {}) };
 }
 
 export class CompletionTracker {
@@ -187,7 +193,9 @@ export class BrowserSession {
       checks++;
       const state = tracker.update(snapshot, performance.now());
       lastStatus = state.status;
-      if (['PAGE_COMPLETE', 'PAGE_ERROR', 'LOGIN_REQUIRED', 'TARGET_CHANGED'].includes(state.status)) return result(state.status);
+      if (['PAGE_COMPLETE', 'PAGE_ERROR', 'LOGIN_REQUIRED', 'TARGET_CHANGED'].includes(state.status)) {
+        return { ...result(state.status), finalEvidence: state };
+      }
       const delay = Math.min(state.status === 'SETTLING' ? quietMs : intervalMs,
         end - performance.now(), deadlineAt - Date.now());
       if (delay > 0) await pause(delay, signal);
