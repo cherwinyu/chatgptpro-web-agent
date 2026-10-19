@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
 
-**Private release preview — not approved for public release.** This repository is a fresh-history, allowlisted research subset, not a fork or clone of the private engineering workspace. It is not affiliated with or endorsed by OpenAI.
+**Noncommercial research preview — not approved for public release.** This repository is a fresh-history, allowlisted research subset, not a fork or clone of the prior internal engineering workspace. It is not affiliated with or endorsed by OpenAI. Repository visibility is an owner setting; it is not a product capability, a rights clearance, or publication approval.
 
 ## What can be tested
 
@@ -17,14 +17,14 @@ Requirements: Windows, Python 3.12, Git 2.32+. No credential, session cookie, ac
 
 ## Not an online integration claim
 
-This source preserves parts of the host-integration research interface, but **does not ship a universal browser driver, a hosted-model client, GitHub writer, or a certified live ChatGPT automation**. A functioning offline test does not prove account/service authorization, UI stability, model tier, cost or end-to-end delivery. Avoid using it with real credentials or proprietary repositories without independent authorization.
+This source preserves parts of the host-integration research interface, but **does not ship a universal browser driver, a hosted-model client, GitHub writer, or a certified live ChatGPT automation**. A functioning offline test does not prove account/service authorization, UI stability, model tier, cost, or end-to-end delivery. This preview does not include a verified online ChatGPT send. Avoid using it with real credentials or proprietary repositories without independent authorization.
 
 ## Distribution and rights
 
-The [PolyForm Noncommercial License 1.0.0](LICENSE) is reproduced without alteration and covers only interests the licensor actually controls. It permits certain noncommercial use, modification and redistribution subject to its conditions; it is **not** an OSI-approved open-source license. It does not grant permissions for third-party code or hosted services. [Scope notice](docs/legal/LICENSE_SCOPE.md). The experimental *not-for-production* statement is a support recommendation, not an unannounced change to the license.
+The [PolyForm Noncommercial License 1.0.0](LICENSE) is reproduced without alteration and covers only interests the licensor actually controls. It permits certain noncommercial use, modification and redistribution subject to its conditions; it is **not** an OSI-approved open-source license. It does not grant permissions for third-party code or hosted services, and it does not mean third-party rights have been cleared. [Scope notice](docs/legal/LICENSE_SCOPE.md). The experimental *not-for-production* statement is a support recommendation, not an unannounced change to the license. This preview is not production-ready.
 
-**Public visibility remains blocked.** This independent clean-root snapshot must pass native Windows CI on its own exact commit before any distribution decision. Component-level source rights, attribution, and final publication approval remain separate mandatory gates. Historical repository CI results cannot certify this snapshot.
+**Publication is not approved.** This independent clean-root snapshot must pass native Windows CI on its own exact commit before any distribution decision. Component-level source rights, attribution, brand permission, and final publication approval remain separate open gates. Historical repository CI results cannot certify this snapshot. Changing repository visibility does not close those gates.
 
 ## Contributing and security
 
-Use synthetic fixtures, scoped changes and independently reproducible tests. Please read [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md) before filing public issues; do not post complete receipts or private task data.
+Use synthetic fixtures, scoped changes and independently reproducible tests. Please read [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md) before filing issues; do not post complete receipts, credentials, or private task data.
