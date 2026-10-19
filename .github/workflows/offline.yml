@@ -52,6 +52,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B tests/pro_bridge/test_security.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Slim runtime package and dual-manifest regressions
+        shell: pwsh
+        run: |
+          python -B -m unittest tests.pro_bridge.test_runtime_package -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Scoped offline audit regressions
         shell: pwsh
         run: |
