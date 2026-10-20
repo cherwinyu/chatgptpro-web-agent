@@ -44,6 +44,8 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 若 ZIP 不在 Downloads，把 `$zip` 改成该文件的路径后再运行。目标目录必须是空的。`Get-FileHash` 输出大写十六进制；上面的比较不区分大小写，核对的仍是公布的小写摘要。
 
+已发布的预发布标签 `v0.1.0-rc.3` 不包含这次在线分担。已安装运行时是否匹配所固定的提交，按[接入说明](INTEGRATION.zh-CN.md)里的身份检查核对。未经独立的发行 manifest 和可信哈希验证，不宣称安装来源通过认证。中英文机器 JSON 字段保持一致。
+
 演示在临时目录里创建一次性合成数据，结束后删除。JSON 中 `network_attempted` 必须为 false，`web_send_count` 必须为 0。预览必须显示 `send_authorized` 为 false。这两条命令都不连接 ChatGPT 或 GitHub。退出码为 0 不是公开批准，也不能说明在线 ChatGPT 发送已在每台宿主上验证通过。
 
 若这个目录没有 `scripts\` 或 `tests\`，说明你在精简运行时树里。这是预期情况。不要从别的目录把这些文件夹拷进来。审计和单元测试请改用源码 ZIP。

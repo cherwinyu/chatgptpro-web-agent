@@ -160,4 +160,60 @@ class PublicPreviewTests(unittest.TestCase):
             self.assertIn('recoverTask', body)
             self.assertNotIn('token savings achieved', body.lower())
 
+    def test_rc3_pre_release_is_not_the_offload_snapshot(self):
+        """Consumers must not treat the published rc.3 tag as the offload tree."""
+        en = (self.root/'docs/INTEGRATION.md').read_text(encoding='utf-8')
+        zh = (self.root/'docs/INTEGRATION.zh-CN.md').read_text(encoding='utf-8')
+        readme = (self.root/'README.md').read_text(encoding='utf-8')
+        readme_zh = (self.root/'README.zh-CN.md').read_text(encoding='utf-8')
+        rc3 = '3051279bd6533d27a7675f8de922a326008cadf5'
+        for body in (en, zh):
+            self.assertIn('v0.1.0-rc.3', body)
+            self.assertIn(rc3, body)
+            self.assertIn('identify --trusted-manifest-sha256', body)
+            self.assertIn('provenance_status', body)
+            self.assertIn('VERIFIED', body)
+            self.assertIn('runtime_source_digest', body)
+            self.assertIn('package_kind', body)
+            self.assertIn('NOT_AVAILABLE', body)
+        self.assertIn('does not include the online offload', en)
+        self.assertIn('不包含这次在线分担', zh)
+        self.assertIn('`readCollected` is exported by `adapters/generic/local_transport.mjs`', en)
+        self.assertIn('local_transport.mjs', zh)
+        self.assertIn('不是 `online_host.mjs` 的第二个导出', zh)
+        self.assertIn('does not include the online offload', readme)
+        self.assertIn('不包含这次在线分担', readme_zh)
+        self.assertNotIn(rc3, readme)
+        self.assertNotIn(rc3, readme_zh)
+        quick = (self.root/'docs/QUICKSTART.md').read_text(encoding='utf-8')
+        quick_zh = (self.root/'docs/QUICKSTART.zh-CN.md').read_text(encoding='utf-8')
+        self.assertIn('v0.1.0-rc.3', quick)
+        self.assertIn('does not include the online offload', quick)
+        self.assertIn('v0.1.0-rc.3', quick_zh)
+        self.assertIn('不包含这次在线分担', quick_zh)
+
+    def test_security_policy_separates_historical_acceptance_from_current_tree(self):
+        """rc.3, the 2026-10-20 acceptance, and this tree are three different claims."""
+        body = (self.root/'SECURITY.md').read_text(encoding='utf-8')
+        accepted = '4399582ddc500216cf4a6034f273946f2b79208d'
+        digest = '68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39'
+        self.assertEqual(body.count(accepted), 2)
+        self.assertEqual(body.count(digest), 2)
+        self.assertIn('offline Pre-release candidate', body)
+        self.assertIn('2026-10-20', body)
+        self.assertIn('single-host historical acceptance did happen', body)
+        self.assertIn('current Runtime digest has not been re-accepted online', body)
+        self.assertIn('not production readiness', body)
+        self.assertIn('not third-party service authorization', body)
+        self.assertIn('not a formal stable Release', body)
+        self.assertNotIn('There is no verified online ChatGPT send', body)
+        self.assertNotIn('does not verify an online ChatGPT send', body)
+        self.assertIn('离线预发布候选', body)
+        self.assertIn('确有一次单宿主历史验收', body)
+        self.assertIn('当前 Runtime 摘要尚未再次完成在线验收', body)
+        self.assertIn('不是生产就绪', body)
+        self.assertIn('不是第三方服务授权', body)
+        self.assertIn('不是正式稳定版 Release', body)
+        self.assertNotIn('也不代表在线 ChatGPT 发送已验证', body)
+
 if __name__=='__main__':unittest.main()

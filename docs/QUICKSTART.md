@@ -44,6 +44,8 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 If the ZIP is not in Downloads, set `$zip` to that file and run the block again. Use an empty destination folder. `Get-FileHash` prints uppercase hex; the comparison above is case-insensitive and still checks the published lowercase digest.
 
+The published pre-release tag `v0.1.0-rc.3` does not include the online offload. Confirm an installed runtime against the pinned commit with the identity check in the [integration guide](INTEGRATION.md). The project does not guarantee deployment identity unless separately supplied with a verified release manifest and trust anchor. JSON keys remain the same for English and Simplified Chinese.
+
 The demo builds disposable synthetic fixtures in a temporary directory and removes them when it finishes. In the JSON, `network_attempted` must be false and `web_send_count` must be 0. The preview must show `send_authorized` false. Neither command contacts ChatGPT or GitHub. A demo that exits 0 is not publication approval, and it does not show that an online ChatGPT send works on every host.
 
 If this folder has no `scripts\` or `tests\`, you are in the Slim Runtime tree. That is expected. Do not copy those directories in from another tree. Use the Source ZIP for the audit and unit tests.

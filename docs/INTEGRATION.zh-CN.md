@@ -13,6 +13,26 @@
 
 这里不保存模型 API 密钥。不要把凭据、Cookie 或未经授权的私人材料写进任务文件。
 
+## 应该安装哪一份快照
+
+克隆或解压你打算调用的那次提交。已发布的预发布标签 `v0.1.0-rc.3` 指向提交 `3051279bd6533d27a7675f8de922a326008cadf5`。该标签及其 Release 资源是更早的快照，不包含这次在线分担：那些资源里没有 `offloadTask`、`adapters/generic/online_host.mjs`、`adapters/generic/local_transport.mjs`，也没有本说明对应的在线页面。不要安装 `v0.1.0-rc.3` 再指望本页的调用可用。
+
+目前没有正式版本 Release 包含这次分担。本页不会创建标签。候选包名称不是已发布标签，不是正式 Release，也不是在线验收。2026-10-20 对提交 `4399582ddc500216cf4a6034f273946f2b79208d` 的验收不会自动转移到后来的 `runtime_source_digest`。
+
+## 核对已安装运行时是否就是那次提交
+
+把运行时包安装到单独的目录，不要装进用来构建它的 Git 工作区。在该安装目录执行：
+
+```powershell
+py -3.12 adapters/generic/run_bridge.py identify --trusted-manifest-sha256 <pin>
+```
+
+`<pin>` 是该包 `release-manifest.json` 的 SHA-256，并且来自你独立信任的渠道。先对一份未核对的副本自行计算哈希，再把这个哈希当作信任锚，并不构成独立的 pin。
+
+必须同时满足：`provenance_status` 为 `VERIFIED`，`source_commit` 等于你固定的提交，`runtime_source_digest` 等于该提交上 `tools/pro_bridge` 与 `adapters/generic` 的摘要。`UNTRUSTED_MANIFEST` 表示没有提供 pin。`TRUST_ANCHOR_MISMATCH` 表示 pin 与这份清单不一致。`MISMATCH` 表示托管文件缺失、被改动或多出文件。`package_kind` 为 `runtime` 和 `release` 是两套不同的文件，不能互相替换。`worktree_git_head` 只是安装目录碰巧落在某个 Git 目录里时的观察。干净安装不在检出里时，它为 `NOT_AVAILABLE`，这不是源身份。`identify` 不会联系 ChatGPT。
+
+2026-10-20 的验收只覆盖运行时摘要 `68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39`。
+
 ## 主代理调用什么
 
 在宿主的浏览器运行环境中导入 `adapters/generic/online_host.mjs`。`offloadTask` 会写入账本回执、核对页面上的模型和努力档位、取得一次发送资格、点击一次、等待，并返回限长正文。`recoverTask` 只读取同一张原始回执，不会再点击发送。
@@ -63,7 +83,7 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 
 `HOST_TIMEOUT` 只结束这一段等待。页面仍在生成时，用同一张回执再调用 `recoverTask`。这不授权 `sendPrepared`、新的 `offloadTask` 或再点一次发送。`sendPrepared` 只用于状态为 `PREPARED` 且 `send_attempts` 为 0 的回执，并且会重新读取模型菜单。`doNotResend: true` 表示下一步只能查看原回执，或继续等待同一任务。不能另建任务、不能再次点击发送，也不能改写 `deadline_at`。
 
-`readCollected` 先核对完整正文的 SHA-256，再按 `maxCharacters` 返回。`truncated: true` 是字符前缀，不是摘要。账本已是 `RESULT_SEEN` 时，这次读取不要求页面仍然打开。页面完成、正文入库、主代理的内容复核和 Git `verify` 是四件不同的事。
+`readCollected` 由 `adapters/generic/local_transport.mjs` 导出，与 `localTransport` 在同一模块，不是 `online_host.mjs` 的第二个导出。`offloadTask` 和 `recoverTask` 在账本达到 `COLLECTED` 或 `RESULT_SEEN` 时会调用它。直接调用时，`readCollected` 先核对完整正文的 SHA-256，再按 `maxCharacters` 返回。`truncated: true` 是字符前缀，不是摘要。账本已是 `RESULT_SEEN` 时，这次读取不要求页面仍然打开。页面完成、正文入库、主代理的内容复核和 Git `verify` 是四件不同的事。
 
 `budgetMs` 只限制浏览器地址读取、页面读取，以及这些读取之间的等待。它从账本状态读取完成之后才开始计算，因此打开本地账本的时间不会在还没查看标签页时被报成 `HOST_TIMEOUT`。每一次 `tab.url()` 和页面读取都受剩余预算、原来的 `deadline_at` 和取消信号限制。时间用尽后，助手不会再发起下一次读取，不会点击发送，也不会改写截止时间。如果宿主的浏览器调用本身不能取消，这次等待结束后该调用仍可能在后台继续。
 
