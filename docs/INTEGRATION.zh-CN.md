@@ -61,7 +61,9 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 - `PREPARED_NOT_SENT` 表示回执已在、发送资格还没用。恢复不会自动发送。需要继续时，调用一次 `sendPrepared`，然后再调用 `recoverTask`。
 - `SUBMISSION_UNKNOWN`、`HOST_TIMEOUT`、`TASK_DEADLINE`、`LOGIN_REQUIRED`、`PAGE_ERROR`、`TAB_GONE`、`TARGET_CHANGED`、`RESPONSE_CHANGED`、`COLLECTION_REFUSED` 都会带上 `doNotResend: true`。
 
-`doNotResend: true` 表示下一步只能查看原回执，或继续等待同一任务。不能另建任务、不能再次点击发送，也不能改写 `deadline_at`。
+`HOST_TIMEOUT` 只结束这一段等待。页面仍在生成时，用同一张回执再调用 `recoverTask`。这不授权 `sendPrepared`、新的 `offloadTask` 或再点一次发送。`sendPrepared` 只用于状态为 `PREPARED` 且 `send_attempts` 为 0 的回执，并且会重新读取模型菜单。`doNotResend: true` 表示下一步只能查看原回执，或继续等待同一任务。不能另建任务、不能再次点击发送，也不能改写 `deadline_at`。
+
+`readCollected` 先核对完整正文的 SHA-256，再按 `maxCharacters` 返回。`truncated: true` 是字符前缀，不是摘要。账本已是 `RESULT_SEEN` 时，这次读取不要求页面仍然打开。页面完成、正文入库、主代理的内容复核和 Git `verify` 是四件不同的事。
 
 `budgetMs` 只限制浏览器地址读取、页面读取，以及这些读取之间的等待。它从账本状态读取完成之后才开始计算，因此打开本地账本的时间不会在还没查看标签页时被报成 `HOST_TIMEOUT`。每一次 `tab.url()` 和页面读取都受剩余预算、原来的 `deadline_at` 和取消信号限制。时间用尽后，助手不会再发起下一次读取，不会点击发送，也不会改写截止时间。如果宿主的浏览器调用本身不能取消，这次等待结束后该调用仍可能在后台继续。
 
@@ -86,6 +88,8 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 
 离线测试覆盖：一次发送资格、一次点击、会话地址稳定后才记入账本、按原回执恢复、带哈希的限长读取、拒绝把不同仓库写进同一个账本、拒绝把仓库本身或指向仓库内部的链接当作证据目录、发送资格之前从菜单读取模型和强度、发送资格之后只复核可见强度并把模型限于刚才那次菜单证据、拒绝过期或跨任务证据、浏览器等待预算不包含账本状态读取、地址或页面读取在剩余预算用尽时停止，以及在点击结果不明、登录失效、标签页消失、等待超时、任务截止、身份不一致或正文变化之后拒绝重发。离线测试不会登录，也不会向 ChatGPT 发送任务，不能当作当前代码的在线验收。
 
-2026-10-19 在 Codex 内置浏览器中的那次运行是历史记录。对应的运行时摘要写在 `capability-manifest.json`。后来的源码树与该摘要不一致，因此它不能证明当前这份代码、其他宿主、其他界面语言或某个消费方项目已经验收。
+2026-10-19 在 Codex 内置浏览器中的那次运行是历史记录：325 字，正文 SHA-256 为 `a2acd364a60eb7e6593e895996825c526a495d2fb6d9d744876bfc2307950756`，运行时摘要为 `4fe06dd107a243e016728081e311e8056f6fa12b05ee83d80632ac27ebcb9784`。后来的源码树与该摘要不一致，因此它不能证明提交 `4399582ddc500216cf4a6034f273946f2b79208d`、其他宿主、其他界面语言或某个消费方项目已经验收。
 
-尚未验收：token 或订阅额度节省、后端模型身份、费用归属于谁、无人值守的生产使用、通用浏览器驱动、凭据保管，以及把聊天回复变成 GitHub 写入。
+2026-10-20 所有者在 Windows 的 Codex 内置浏览器、中文普通 Chat 上验收了该提交。运行时摘要是 `68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39`。发送前菜单显示 GPT-6 / Pro，关闭后的控件只显示 Pro（`preclaim_menu`，`closed_control_confirms_model` 为 false）。一次 `offloadTask` 点击了一次发送。第一次等待是 `HOST_TIMEOUT`，页面仍在生成。`recoverTask` 回收了 296 字，SHA-256 为 `e6e40e1bef2265a97e1d44a89395290132ae6af012b6f9233fdc82bea6b3d7e8`。宿主 JavaScript 运行时重启并重新绑定原标签页后，`recoverTask` 取回同一正文，账本发送次数仍为 1。本文记录的是这次交接，没有再执行浏览器流程。该提交的 Windows CI https://github.com/cherwinyu/chatgptpro-web-agent/actions/runs/39298630734 是离线检查。这次验收不覆盖后来的运行时摘要、其他宿主或消费方项目。消费方项目需要自己做合成在线验收。`certifies_current_tree` 保持为 false。
+
+尚未验收：token 或订阅额度节省、后端模型身份、费用归属于谁、无人值守的生产使用、通用浏览器驱动、凭据保管、把聊天回复变成 GitHub 写入，以及把其他宿主或消费方项目当成已被这次运行验收。

@@ -5,7 +5,10 @@
 The purpose is to move a bounded analysis out of the main agent, then bring back
 the finished response. The main agent packages the necessary material, selects
 the actual page model and effort, sends once, and checks the answer. Call
-`offloadTask` for that sequence and `recoverTask` after an interruption.
+`offloadTask` once. If the page is still generating, call `recoverTask` on the
+same receipt for another wait segment. After `COLLECTED`, read the body. After
+a host JavaScript runtime restart, call `recoverTask` again with that receipt.
+`recoverTask` does not click send.
 Reducing token or subscription usage was an initial hypothesis, not a demonstrated
 benefit. Packaging, browser operation and review can offset or exceed any saving;
 whether total usage decreases is unknown (NOT_OBSERVABLE).
@@ -145,9 +148,17 @@ permits a resend, replacement task or deadline extension. `budgetMs` starts
 after the ledger status read and bounds each browser URL or page read. A read
 that does not return ends that wait; the helper does not start another read.
 The underlying host call is not aborted when the browser API cannot cancel it.
-`HOST_TIMEOUT` ends one bounded wait; it does not expire or recreate the task.
-An original task
-deadline, BLOCKED or TIMEOUT cannot be overridden by collection. A changed reply
+`HOST_TIMEOUT` ends that wait segment only. Call `recoverTask` again on the
+same receipt to keep waiting. It does not authorize another send, a replacement
+task, or a deadline change. `PREPARED_NOT_SENT` means the original task was not
+sent. Only when the receipt is `PREPARED` and `send_attempts` is 0 may the
+caller explicitly continue with `sendPrepared`, which reads the model menu
+again. A `RESULT_SEEN` body can be read from the ledger when the page is no
+longer open. `readCollected` hashes the full stored body. `truncated: true`
+means the returned text is a character prefix, not a summary. Page completion,
+the stored `browser_response`, the primary agent's content review, and Git
+`verify` are different conclusions.
+An original task deadline, BLOCKED, or TIMEOUT cannot be overridden by collection. A changed reply
 cannot overwrite an already collected response. Attachment-only delivery can be
 detected as page completion but is not yet a text-collection acceptance claim.
 
@@ -178,17 +189,119 @@ observation does not claim a committed release or cloud CI run.
 
 The result reader and `offloadTask` / `recoverTask` are covered by offline
 identity, hash, truncation, single-click and failure-path tests. The runtime
-digest above identifies the earlier live collection. It was compared with the
-runtime digest of the tree that already contained the first helper and did not
-match; later edits move the digest again. `capability-manifest.json` sets
-`certifies_current_tree` to false. That observation does not certify this
-checkout. Later fixes to the wait budget, evidence paths and URL-read bounds
-are covered by offline fixtures. The selection check keeps the model from the
-pre-claim menu when the closed control shows only the effort. That behavior is
-also an offline fixture. It is not a new live send, and this checkout still has
-no online acceptance of its own. A local preflight that opened the menu and
-then saw only the effort on the closed control is not a send and does not
-accept this checkout.
+digest above identifies the 2026-10-19 collection. `capability-manifest.json`
+keeps that record as `HISTORICAL_SINGLE_HOST_OBSERVATION` with
+`certifies_current_tree` false. It does not certify commit
+`4399582ddc500216cf4a6034f273946f2b79208d`. A menu-only preflight is not a send.
+
+## Local acceptance on 2026-10-20
+
+The owner ran this acceptance on a Windows host, in the Codex in-app browser,
+on a logged-in Chinese ordinary Chat page, and handed the outcome over for this
+documentation update. This documentation change did not execute the browser
+flow and did not read the private evidence files. Receipts, the ledger, the
+nonce, task identity, the conversation URL, and screenshots stay outside this
+public tree.
+
+Accepted commit: `4399582ddc500216cf4a6034f273946f2b79208d`.
+Runtime digest at acceptance, over `tools/pro_bridge` and `adapters/generic`:
+`68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39`.
+The worktree was clean and the identity output matched that digest. Windows CI
+for that commit is https://github.com/cherwinyu/chatgptpro-web-agent/actions/runs/39298630734.
+That job is offline. It is not this live send.
+
+The pre-claim menu showed the visible labels GPT-6 and Pro. After the menu
+closed, the control showed only Pro. `model_evidence_source` was
+`preclaim_menu`, `closed_control_confirms_model` was false, and
+`concurrent_model_switch_ruled_out` was false. Those labels are page text, not
+a backend model identity. The closed control did not independently confirm the
+model.
+
+On the original receipt:
+
+1. One `offloadTask` sent one self-contained synthetic read-only review. The
+   synthetic target was a `mean()` that filtered zeros. The required behavior
+   was to ignore only `None`, keep zeros, and return `None` for an empty or
+   all-`None` input.
+2. The matching task appeared and the page showed thinking.
+3. The first wait returned `HOST_TIMEOUT` while the page was still running, with
+   `send_status` `SEND_CLICKED`. That status ends the wait segment. It does not
+   authorize another send.
+4. `recoverTask` on the same receipt returned `COLLECTED`. It did not send.
+5. The stored body was 296 characters and was not truncated. Its UTF-8 SHA-256
+   is `e6e40e1bef2265a97e1d44a89395290132ae6af012b6f9233fdc82bea6b3d7e8`.
+6. The primary agent reviewed the body. It handles `None`, zero, and empty or
+   all-`None` input, with three examples `1.0`, `None`, and `None`. That review
+   is separate from page completion and from storing the body.
+7. The host JavaScript runtime was reset, the modules were loaded again, and
+   the original tab was bound again. `recoverTask` with the original receipt
+   returned `COLLECTED` with `recovered` true. The ledger still had
+   `send_attempts` 1 and the same body hash. Once the ledger is `RESULT_SEEN`,
+   the page does not have to stay open.
+8. `readCollected({ maxCharacters: 120 })` returned 120 characters with
+   `truncated` true. The full body remained in the ledger. `truncated` means a
+   character prefix, not a summary. The hash is of the full body.
+
+`PREPARED_NOT_SENT` means the original task was not sent. Only a receipt whose
+state is `PREPARED` and whose `send_attempts` is 0 may be continued with
+`sendPrepared`, which reads the model menu again. This acceptance had already
+clicked send, so that continue path was not used.
+
+Page completion, `browser_response` delivery, the primary agent's content
+review, and Git `verify` are different conclusions. This run stored a
+`browser_response`. `review_approved` stays false. `cost_claim` stays
+`NOT_OBSERVABLE`. Token or subscription savings were not measured.
+
+This accepts that commit's runtime digest on one host and one locale, for one
+synthetic task. A later change under `tools/pro_bridge` or `adapters/generic`
+produces another runtime digest and is outside this acceptance. The same digest
+does not accept other hosts, other locales, or a consumer project. A consumer
+project needs its own synthetic online acceptance. `certifies_current_tree`
+stays false so a later checkout is not treated as this acceptance merely by
+being current.
+
+2026-10-20 的验收由所有者在 Windows 的 Codex 内置浏览器、已登录的中文普通 Chat
+上完成，再交来写入本文。这次文档更新没有执行浏览器流程，也没有读取私人证据文件。
+回执、账本、nonce、任务身份、会话地址和截图不进入公开仓库。
+
+验收提交是 `4399582ddc500216cf4a6034f273946f2b79208d`。验收时
+`tools/pro_bridge` 与 `adapters/generic` 的运行时摘要是
+`68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39`。工作区干净，
+身份输出与该摘要一致。该提交的 Windows CI 是
+https://github.com/cherwinyu/chatgptpro-web-agent/actions/runs/39298630734 ，
+它是离线检查，不是这次真实发送。
+
+发送前菜单的可见标签是 GPT-6 与 Pro。菜单关闭后控件只显示 Pro。模型证据来源是
+`preclaim_menu`，`closed_control_confirms_model` 为 false，
+`concurrent_model_switch_ruled_out` 为 false。这些是页面文字，不是后端模型身份。
+关闭控件没有独立确认模型。
+
+同一张回执上：一次 `offloadTask` 发送了一条自包含的合成只读审查，对象是一个会滤掉
+零的 `mean()`，要求只忽略 `None`、保留零、空输入或全是 `None` 时返回 `None`。
+匹配任务出现，页面显示正在思考。第一次等待返回 `HOST_TIMEOUT`，页面仍在运行，
+`send_status` 为 `SEND_CLICKED`。该状态只结束这一段等待，不授权再次发送。
+随后 `recoverTask` 返回 `COLLECTED`，没有发送。正文 296 字，未截断，UTF-8
+SHA-256 为 `e6e40e1bef2265a97e1d44a89395290132ae6af012b6f9233fdc82bea6b3d7e8`。
+主代理复核正文：能处理 `None`、零、空输入或全是 `None`，三个例子是 `1.0`、
+`None`、`None`。这次内容复核不同于页面完成，也不同于正文入库。宿主 JavaScript
+运行时重置、重新加载模块并重新绑定原标签页后，用原回执再调用 `recoverTask`，
+仍是 `COLLECTED` 且 `recovered` 为 true；账本 `send_attempts` 仍为 1，正文哈希
+不变。账本已是 `RESULT_SEEN` 时，页面不必继续打开。`readCollected` 取 120 字时
+`truncated` 为 true，完整正文仍在账本。截断是字符前缀，不是摘要。哈希针对完整正文。
+
+`PREPARED_NOT_SENT` 表示原任务还没发送。只有状态为 `PREPARED` 且 `send_attempts`
+为 0 时，才可以显式调用 `sendPrepared`，它会重新读取模型菜单。这次验收已经点过
+发送，没有走那条继续路径。
+
+页面完成、`browser_response` 入库、主代理的内容复核和 Git `verify` 是四件不同的事。
+这次是 `browser_response`。`review_approved` 保持 false，`cost_claim` 保持
+`NOT_OBSERVABLE`。没有测量 token 或订阅节省。
+
+这次只验收该提交的运行时摘要在一个宿主、一种界面语言上的一条合成任务。以后改动
+`tools/pro_bridge` 或 `adapters/generic` 会得到另一个运行时摘要，不在本次验收内。
+相同摘要也不验收其他宿主、其他界面语言或消费方项目。消费方项目需要自己做合成在线
+验收。`certifies_current_tree` 保持 false，后来的工作区不会因为是当前树就自动沿用
+这次验收。2026-10-19 的 325 字记录仍然只是历史观察，不能证明这次提交。
 
 An earlier Chrome attempt stayed submission-unknown. The user reported closing
 external Chrome and explicitly requested a separate in-app attempt. Its receipt

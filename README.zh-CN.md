@@ -30,11 +30,13 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 要求 Windows、Python 3.12、Git 2.32+。权限预览始终不授予发送资格。不要把离线测试通过理解为线上 ChatGPT 网页发送已通过验证。
 
-实际分担任务还需要 Node.js 22+、宿主提供的 CUA 浏览器 API，以及已登录的普通 Chat 页面。在宿主的 JavaScript 浏览器运行环境中调用一次 `offloadTask`。如果该进程中断，对同一张回执调用 `recoverTask`；它不会再次点击发送。调用约定见[接入说明](docs/INTEGRATION.zh-CN.md)，选择器、失败行为和历史浏览器记录见[在线使用](docs/ONLINE_WORKFLOW.md)。单独运行终端不能驱动浏览器；在提示词里写本地源码路径也不会上传文件内容。
+实际分担任务还需要 Node.js 22+、宿主提供的 CUA 浏览器 API，以及已登录的普通 Chat 页面。在宿主的 JavaScript 浏览器运行环境中调用一次 `offloadTask`。页面仍在生成时，对同一张回执再调用 `recoverTask` 继续等待；它不会再次点击发送。调用约定见[接入说明](docs/INTEGRATION.zh-CN.md)，选择器、失败行为和浏览器记录见[在线使用](docs/ONLINE_WORKFLOW.md)。单独运行终端不能驱动浏览器；在提示词里写本地源码路径也不会上传文件内容。
 
 ## 功能与使用限制
 
-2026-10-19 已在 Codex 内置浏览器用页面显示的 GPT-6 / Pro 完成一条合成只读审查任务，回收了 325 字渲染正文；按原回执恢复后，发送次数仍为 1，正文哈希一致。该记录绑定 `capability-manifest.json` 里的运行时摘要。该摘要与当前工作区不一致，因此不能证明当前这份代码、其他宿主、其他界面语言或某个消费方项目已经验收。直接回收正文不依赖网页端写 GitHub；原 Git 验证路径独立保留，不能把聊天回复升级成 Git 批准。本项目不提供通用浏览器驱动、托管模型 API 客户端或凭据保管。token 和订阅额度节省不是已经实现的结果。
+2026-10-19 已在 Codex 内置浏览器用页面显示的 GPT-6 / Pro 完成一条合成只读审查任务，回收了 325 字渲染正文；按原回执恢复后，发送次数仍为 1，正文哈希一致。该记录是 `capability-manifest.json` 里的历史观察。它的运行时摘要与后来的源码树不一致，因此不能证明当前这份代码、其他宿主、其他界面语言或某个消费方项目已经验收。
+
+2026-10-20 所有者在 Windows 的 Codex 内置浏览器、已登录的中文普通 Chat 上，验收了后一次合成只读审查。验收提交和运行时摘要写在 `capability-manifest.json` 的 `synthetic_online_acceptance`。发送前菜单显示 GPT-6 / Pro，关闭后的控件只显示 Pro。一次 `offloadTask` 点击了一次发送。第一次等待返回 `HOST_TIMEOUT`，页面仍在生成。对同一张回执调用 `recoverTask` 后回收了 296 字正文。宿主 JavaScript 运行时重启并重新绑定原标签页后，`recoverTask` 仍取回同一正文，账本里的发送次数仍为 1。`readCollected` 取 120 字时是截断前缀，完整正文仍在账本。这次文档只记录所有者交来的结果，并没有再跑那次浏览器流程。验收范围是一个宿主、一种界面语言、一条合成任务。它不验收其他宿主、其他界面语言或某个消费方项目。消费方项目需要自己做一次合成在线验收。Windows CI 仍是离线工程检查。直接回收正文不依赖网页端写 GitHub；原 Git 验证路径独立保留，不能把聊天回复升级成 Git 批准。本项目不提供通用浏览器驱动、托管模型 API 客户端或凭据保管。token 和订阅额度节省不是已经实现的结果。
 
 正式法律文本为未修改的 [PolyForm Noncommercial License 1.0.0](LICENSE)，只适用于授权者实际有权许可的内容。它允许符合条款的非商业使用、修改与分发，但不是 OSI 开源许可证，也不自动授权未核实的第三方材料，更不表示第三方权利已经核清。“不用于生产环境”是项目支持定位，不是偷偷收紧 PolyForm 原条款。详见[授权范围说明](docs/legal/LICENSE_SCOPE.md)。
 
