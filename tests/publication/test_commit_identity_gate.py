@@ -70,11 +70,15 @@ class CommitIdentityGateTests(unittest.TestCase):
             status = gate.main(["--repository", str(self.repo), *args])
         return status, json.loads(output.getvalue())
 
-    def annotated_tag(self, name, target=None):
+    def annotated_tag(self, name, target=None, *, tagger_email=None,
+                      tagger_name="Synthetic Tagger"):
         args = ["tag", "-a", name, "-m", name]
         if target:
             args.append(target)
-        self.git(*args)
+        env = None
+        if tagger_email is not None:
+            env = {"GIT_COMMITTER_EMAIL": tagger_email, "GIT_COMMITTER_NAME": tagger_name}
+        self.git(*args, env=env)
         oid = self.git("rev-parse", "refs/tags/" + name)
         self.assertEqual(self.git("cat-file", "-t", oid), "tag")
         return oid
@@ -395,11 +399,7 @@ class CommitIdentityGateTests(unittest.TestCase):
         code, output = self.push("0" * 40, tag, ref="refs/tags/v0.1.0-rc.3", github_sha=head)
         self.assertEqual(code, 0)
         self.assertEqual(output["status"], "PASS")
-        # GITHUB_REF alone is enough when the event payload omits ref.
-        code, output = self.push("0" * 40, tag, ref="refs/tags/v0.1.0-rc.3",
-                                  include_event_ref=False)
-        self.assertEqual(code, 0)
-        self.assertEqual(output["status"], "PASS")
+        self.assertNotIn("flagged_tag_prefixes", output)
 
     def test_lightweight_tag_and_branch_push_still_pass(self):
         head = self.commit("lightweight")
@@ -500,6 +500,97 @@ class CommitIdentityGateTests(unittest.TestCase):
         blob = json.dumps(output)
         self.assertNotIn(PERSONAL, blob)
         self.assertNotIn(NOREPLY, blob)
+
+    def test_missing_ref_does_not_skip_fast_forward_check(self):
+        head = self.commit("main tip")
+        self.git("checkout", "-qb", "other", self.root)
+        other = self.commit("side")
+        self.git("checkout", "-q", "main")
+        # One side claims a tag and the other is absent. That is not a tag
+        # push, so the non-fast-forward branch history stays refused.
+        code, output = self.push(other, head, ref="refs/tags/vmove", include_event_ref=False)
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        code, output = self.push(other, head, ref="refs/tags/vmove", github_ref="")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        code, output = self.push(other, head, ref="refs/heads/main", github_ref="",
+                                  include_event_ref=False)
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        code, output = self.push(other, head, ref="refs/tags/vmove")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        blob = json.dumps(output)
+        self.assertNotIn(NOREPLY, blob)
+        self.assertNotIn("@", blob)
+
+    def test_unreadable_push_object_refused_without_email(self):
+        missing = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        code, output = self.push("0" * 40, missing, github_sha=missing)
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        self.assertEqual(output["reason"], "privacy_audit_unavailable_or_invalid")
+        self.assertFalse(output["full_email_values_exposed"])
+        blob = json.dumps(output)
+        self.assertNotIn("@", blob)
+        self.assertNotIn(PERSONAL, blob)
+        self.assertNotIn(NOREPLY, blob)
+
+    def test_personal_tagger_email_blocked_without_printing_it(self):
+        head = self.commit("tagged")
+        tag = self.annotated_tag("vpersonal", tagger_email=PERSONAL)
+        code, output = self.push("0" * 40, tag, ref="refs/tags/vpersonal")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "BLOCKED_PERSONAL_EMAIL")
+        self.assertEqual(output["flagged_tag_prefixes"], [tag[:12]])
+        self.assertEqual(output["flagged_commit_prefixes"], [])
+        self.assertEqual(output["commits_examined"], 2)
+        self.assertFalse(output["historical_exemption"])
+        self.assertFalse(output["full_email_values_exposed"])
+        blob = json.dumps(output)
+        self.assertNotIn(PERSONAL, blob)
+        self.assertNotIn(NOREPLY, blob)
+        self.assertNotIn("@", blob)
+        # User noreply and the exact GitHub web committer use the same
+        # identities already accepted for author and committer.
+        self.git("tag", "-d", "vpersonal")
+        clean = self.annotated_tag("vclean", tagger_email=NOREPLY)
+        code, output = self.push("0" * 40, clean, ref="refs/tags/vclean")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.assertNotIn("flagged_tag_prefixes", output)
+        self.assertNotIn(NOREPLY, json.dumps(output))
+        self.git("tag", "-d", "vclean")
+        web = self.annotated_tag("vweb", tagger_email="noreply@github.com", tagger_name="GitHub")
+        code, output = self.push("0" * 40, web, ref="refs/tags/vweb")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.assertNotIn("noreply@github.com", json.dumps(output))
+        self.git("tag", "-d", "vweb")
+        spoof = self.annotated_tag("vspoof", tagger_email="noreply@github.com",
+                                    tagger_name="Not GitHub")
+        code, output = self.push("0" * 40, spoof, ref="refs/tags/vspoof")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "BLOCKED_PERSONAL_EMAIL")
+        self.assertEqual(output["flagged_tag_prefixes"], [spoof[:12]])
+        self.assertNotIn("noreply@github.com", json.dumps(output))
+        self.assertNotIn("@", json.dumps(output))
+
+    def test_nested_personal_tagger_still_blocked(self):
+        head = self.commit("nested")
+        inner = self.annotated_tag("inner", head, tagger_email=PERSONAL)
+        outer = self.annotated_tag("outer", inner, tagger_email=NOREPLY)
+        self.assertEqual(self.git("rev-parse", outer + "^{commit}"), head)
+        code, output = self.push("0" * 40, outer, ref="refs/tags/outer")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "BLOCKED_PERSONAL_EMAIL")
+        self.assertEqual(output["flagged_tag_prefixes"], [inner[:12]])
+        self.assertNotIn(outer[:12], output["flagged_tag_prefixes"])
+        blob = json.dumps(output)
+        self.assertNotIn(PERSONAL, blob)
+        self.assertNotIn(NOREPLY, blob)
+        self.assertNotIn("@", blob)
 
     def test_tag_object_not_pointing_at_commit_refused(self):
         blob = self.git("hash-object", "-w", "synthetic.txt")
