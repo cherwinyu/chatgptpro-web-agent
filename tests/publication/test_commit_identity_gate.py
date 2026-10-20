@@ -70,6 +70,30 @@ class CommitIdentityGateTests(unittest.TestCase):
             status = gate.main(["--repository", str(self.repo), *args])
         return status, json.loads(output.getvalue())
 
+    def annotated_tag(self, name, target=None):
+        args = ["tag", "-a", name, "-m", name]
+        if target:
+            args.append(target)
+        self.git(*args)
+        oid = self.git("rev-parse", "refs/tags/" + name)
+        self.assertEqual(self.git("cat-file", "-t", oid), "tag")
+        return oid
+
+    def push(self, before, after, *, ref="refs/heads/main", github_sha=None,
+             github_ref=None, include_event_ref=True):
+        # Pin GITHUB_REF so an ambient tag ref in CI cannot reclassify a
+        # synthetic branch push and skip the fast-forward check.
+        payload = {"before": before, "after": after}
+        if include_event_ref:
+            payload["ref"] = ref
+        event = self.repo / "event.json"
+        event.write_text(json.dumps(payload), encoding="utf-8")
+        env = {"GITHUB_EVENT_NAME": "push",
+               "GITHUB_SHA": after if github_sha is None else github_sha,
+               "GITHUB_REF": ref if github_ref is None else github_ref}
+        with patch.dict(os.environ, env):
+            return self.cli("--event", str(event))
+
     def test_clean_root_is_inspected_not_exempted(self):
         report = gate.inspect_history(self.repo, [self.root])
         self.assertEqual(report["status"], "PASS")
@@ -155,12 +179,12 @@ class CommitIdentityGateTests(unittest.TestCase):
 
     def test_push_event_checks_entire_root_and_tip(self):
         head = self.commit("push clean")
-        event = self.repo/"event.json"
-        event.write_text(json.dumps({"before": self.root, "after": head}), encoding="utf-8")
-        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": head}):
-            code, output = self.cli("--event", str(event))
+        code, output = self.push(self.root, head)
         self.assertEqual(code, 0)
         self.assertEqual(output["commits_examined"], 2)
+        code, output = self.push("0" * 40, head)
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
 
     def test_pull_request_event_inspects_both_histories(self):
         self.git("checkout", "-qb", "feature")
@@ -179,10 +203,7 @@ class CommitIdentityGateTests(unittest.TestCase):
         self.git("checkout", "-qb", "other", self.root)
         other = self.commit("divergent")
         self.git("checkout", "-q", "main")
-        event = self.repo/"event.json"
-        event.write_text(json.dumps({"before": other, "after": head}), encoding="utf-8")
-        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": head}):
-            code, result = self.cli("--event", str(event))
+        code, result = self.push(other, head)
         self.assertEqual(code, 3)
         self.assertEqual(result["status"], "REFUSED")
 
@@ -228,9 +249,7 @@ class CommitIdentityGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(output["status"], "PASS")
         self.assertEqual(output["commits_examined"], 2)
-        event.write_text(json.dumps({"before": self.root, "after": head}), encoding="utf-8")
-        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": head}):
-            code, output = self.cli("--event", str(event))
+        code, output = self.push(self.root, head)
         self.assertEqual(code, 0)
         self.assertEqual(output["commits_examined"], 2)
 
@@ -313,7 +332,8 @@ class CommitIdentityGateTests(unittest.TestCase):
         self.assertNotIn("@", json.dumps(output))
         event = self.repo / "event.json"
         event.write_text("[]", encoding="utf-8")
-        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": self.root}):
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": self.root,
+                                          "GITHUB_REF": "refs/heads/main"}):
             code, output = self.cli("--event", str(event))
         self.assertEqual(code, 3)
         self.assertEqual(output["status"], "REFUSED")
@@ -322,7 +342,8 @@ class CommitIdentityGateTests(unittest.TestCase):
             code, output = self.cli("--event", str(event))
         self.assertEqual(output["status"], "REFUSED")
         event.write_text("{", encoding="utf-8")
-        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": self.root}):
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": self.root,
+                                          "GITHUB_REF": "refs/heads/main"}):
             code, output = self.cli("--event", str(event))
         self.assertEqual(output["status"], "REFUSED")
         event.write_text("{}", encoding="utf-8")
@@ -330,7 +351,8 @@ class CommitIdentityGateTests(unittest.TestCase):
             code, output = self.cli("--event", str(event))
         self.assertEqual(output["status"], "REFUSED")
         event.write_text(json.dumps({"before": "0" * 40, "after": self.root}), encoding="utf-8")
-        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": "b" * 40}):
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": "b" * 40,
+                                          "GITHUB_REF": "refs/heads/main"}):
             code, output = self.cli("--event", str(event))
         self.assertEqual(output["status"], "REFUSED")
         self.assertNotIn(NOREPLY, json.dumps(output))
@@ -341,10 +363,7 @@ class CommitIdentityGateTests(unittest.TestCase):
         self.git("checkout", "-qb", "other", self.root)
         other = self.commit("divergent")
         self.git("checkout", "-q", "main")
-        event = self.repo / "event.json"
-        event.write_text(json.dumps({"before": other, "after": head}), encoding="utf-8")
-        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": head}):
-            code, result = self.cli("--event", str(event))
+        code, result = self.push(other, head)
         self.assertEqual(code, 3)
         self.assertEqual(result["status"], "REFUSED")
         self.assertNotIn("noreply@github.com", json.dumps(result))
@@ -355,6 +374,142 @@ class CommitIdentityGateTests(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertEqual(output["status"], "BLOCKED_PERSONAL_EMAIL")
         self.assertNotIn("noreply@github.com", json.dumps(output))
+
+    def test_annotated_tag_push_peels_to_checked_out_commit(self):
+        # actions/checkout leaves HEAD on the commit while after/GITHUB_SHA
+        # are the annotated tag object.
+        head = self.commit("release")
+        tag = self.annotated_tag("v0.1.0-rc.3")
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+        self.assertEqual(self.git("rev-parse", tag + "^{commit}"), head)
+        self.assertNotEqual(tag, head)
+        code, output = self.push("0" * 40, tag, ref="refs/tags/v0.1.0-rc.3")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.assertEqual(output["commits_examined"], 2)
+        self.assertEqual(output["heads_examined"], 1)
+        self.assertFalse(output["historical_exemption"])
+        self.assertNotIn(NOREPLY, json.dumps(output))
+        self.assertNotIn(tag, json.dumps(output))
+        # GITHUB_SHA may already be the peeled commit while after is the tag.
+        code, output = self.push("0" * 40, tag, ref="refs/tags/v0.1.0-rc.3", github_sha=head)
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        # GITHUB_REF alone is enough when the event payload omits ref.
+        code, output = self.push("0" * 40, tag, ref="refs/tags/v0.1.0-rc.3",
+                                  include_event_ref=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+
+    def test_lightweight_tag_and_branch_push_still_pass(self):
+        head = self.commit("lightweight")
+        self.git("tag", "vlight", head)
+        self.assertEqual(self.git("cat-file", "-t", head), "commit")
+        self.assertEqual(self.git("rev-parse", "refs/tags/vlight"), head)
+        code, output = self.push(self.root, head, ref="refs/tags/vlight")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.assertEqual(output["commits_examined"], 2)
+        code, output = self.push(self.root, head, ref="refs/heads/main")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.assertEqual(output["commits_examined"], 2)
+        self.assertNotIn(NOREPLY, json.dumps(output))
+
+    def test_tag_retarget_before_annotated_object_passes(self):
+        # Force-moving an annotated tag to a lightweight tag leaves before as
+        # the old tag object. That object is not a commit, and checkout may
+        # not have retained it. Tag refs skip the ancestor check.
+        head = self.commit("retarget")
+        old_tag = self.annotated_tag("vmove")
+        self.assertNotEqual(old_tag, head)
+        self.git("tag", "-d", "vmove")
+        self.git("tag", "vmove", head)
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+        self.assertEqual(self.git("cat-file", "-t", old_tag), "tag")
+        code, output = self.push(old_tag, head, ref="refs/tags/vmove")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.assertEqual(output["commits_examined"], 2)
+        self.assertNotIn(NOREPLY, json.dumps(output))
+        missing = "0123456789abcdef0123456789abcdef01234567"
+        code, output = self.push(missing, head, ref="refs/tags/vmove")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        code, output = self.push(missing, head, ref="refs/heads/main")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+
+    def test_tag_move_skips_fast_forward_check_branch_does_not(self):
+        head = self.commit("main tip")
+        self.git("checkout", "-qb", "other", self.root)
+        other = self.commit("side")
+        self.git("checkout", "-q", "main")
+        code, output = self.push(other, head, ref="refs/tags/vmove")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.assertEqual(output["commits_examined"], 2)
+        code, output = self.push(other, head, ref="refs/heads/main")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        self.assertNotIn(NOREPLY, json.dumps(output))
+
+    def test_branch_push_peels_tag_object_before_ancestry_check(self):
+        head = self.commit("tip")
+        root_tag = self.annotated_tag("old", self.root)
+        code, output = self.push(root_tag, head, ref="refs/heads/main")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["status"], "PASS")
+        self.git("checkout", "-qb", "side", self.root)
+        side = self.commit("divergent side")
+        self.git("checkout", "-q", "main")
+        side_tag = self.annotated_tag("side-tag", side)
+        code, output = self.push(side_tag, head, ref="refs/heads/main")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+
+    def test_annotated_tag_push_mismatch_still_refused(self):
+        head = self.commit("release")
+        tag = self.annotated_tag("v0")
+        self.git("checkout", "-qb", "side", self.root)
+        other = self.commit("other")
+        self.git("checkout", "-q", "main")
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+        code, output = self.push("0" * 40, tag, ref="refs/tags/v0", github_sha=other)
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        code, output = self.push(self.root, head, ref="refs/tags/v0", github_ref="refs/heads/main")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        self.git("checkout", "-q", "side")
+        self.assertEqual(self.git("rev-parse", "HEAD"), other)
+        code, output = self.push("0" * 40, tag, ref="refs/tags/v0", github_sha=tag)
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        self.assertNotIn(NOREPLY, json.dumps(output))
+
+    def test_annotated_tag_push_still_blocks_personal_email(self):
+        bad = self.commit("personal tagged", PERSONAL, PERSONAL)
+        tag = self.annotated_tag("vbad")
+        code, output = self.push("0" * 40, tag, ref="refs/tags/vbad")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "BLOCKED_PERSONAL_EMAIL")
+        self.assertIn(bad[:12], output["flagged_commit_prefixes"])
+        self.assertEqual(output["commits_examined"], 2)
+        self.assertFalse(output["historical_exemption"])
+        blob = json.dumps(output)
+        self.assertNotIn(PERSONAL, blob)
+        self.assertNotIn(NOREPLY, blob)
+
+    def test_tag_object_not_pointing_at_commit_refused(self):
+        blob = self.git("hash-object", "-w", "synthetic.txt")
+        self.git("tag", "-a", "blobtag", blob, "-m", "blob")
+        tag = self.git("rev-parse", "refs/tags/blobtag")
+        self.assertEqual(self.git("cat-file", "-t", tag), "tag")
+        code, output = self.push("0" * 40, tag, ref="refs/tags/blobtag")
+        self.assertEqual(code, 3)
+        self.assertEqual(output["status"], "REFUSED")
+        self.assertNotIn(NOREPLY, json.dumps(output))
 
 
 if __name__ == "__main__":

@@ -7,6 +7,13 @@ use that same form, or the exact GitHub web squash/merge committer: the name
 "GitHub" with the mailbox noreply@github.com. Any other name on that mailbox
 is rejected.
 
+Annotated tag pushes store the tag object in the event after field and in
+GITHUB_SHA, while actions/checkout peels that tag and leaves HEAD on the
+commit. Those objects are peeled to commits before head comparison. A
+refs/tags/* update is not a commit-graph fast-forward, so the previous tip
+is not required to be an ancestor. The peeled tag's reachable history is
+still checked in full, with no baseline or SHA exemption.
+
 This checks local Git objects only, performs no fetch or mutation, and never
 prints email values. Matching a no-reply mailbox is an offline privacy filter.
 It is not cryptographic proof that GitHub signed the commit, and it does not
@@ -146,6 +153,46 @@ def inspect_history(repo: Path, heads: list[str] | None = None, *, all_refs: boo
             "historical_exemption": False, "full_email_values_exposed": False}
 
 
+def _object_kind(repo: Path, oid: str) -> str:
+    kind = _git(repo, "cat-file", "-t", oid).decode("ascii", "strict").strip()
+    if kind not in {"blob", "commit", "tag", "tree"}:
+        raise ValueError("untrusted_git_object_type")
+    return kind
+
+
+def _peel_to_commit(repo: Path, value: object) -> str:
+    """Return a commit SHA, peeling an annotated tag object when needed.
+
+    Lightweight tag pushes already name a commit. Trees, blobs, and missing
+    objects fail closed. Callers must not print the SHA beside identity data.
+    """
+    oid = _sha(value)
+    kind = _object_kind(repo, oid)
+    if kind == "commit":
+        return oid
+    if kind != "tag":
+        raise ValueError("push_sha_not_commit_or_tag")
+    peeled = _sha(_git(repo, "rev-parse", oid + "^{commit}").decode("ascii", "strict").strip())
+    if _object_kind(repo, peeled) != "commit":
+        raise ValueError("peeled_tag_not_a_commit")
+    return peeled
+
+
+def _push_ref_is_tag(event: dict) -> bool:
+    """True when this push updates a tag ref.
+
+    event.ref and GITHUB_REF are both accepted. When both name a ref and they
+    differ, fail closed instead of guessing which history to audit.
+    """
+    event_ref = event.get("ref")
+    if not isinstance(event_ref, str):
+        event_ref = ""
+    env_ref = os.environ.get("GITHUB_REF", "")
+    if event_ref.startswith("refs/") and env_ref.startswith("refs/") and event_ref != env_ref:
+        raise ValueError("push_ref_mismatch")
+    return event_ref.startswith("refs/tags/") or env_ref.startswith("refs/tags/")
+
+
 def _event_heads(repo: Path, event_path: Path) -> list[str]:
     if not event_path.is_file() or event_path.stat().st_size > MAX_EVENT_BYTES:
         raise ValueError("missing_or_oversized_workflow_event")
@@ -164,17 +211,23 @@ def _event_heads(repo: Path, event_path: Path) -> list[str]:
         # author identity, so inspect the actual PR head and target base.
         return [_sha(base.get("sha")), _sha(head.get("sha"))]
     if kind == "push":
-        head = _sha(event.get("after"))
-        if head != _sha(os.environ.get("GITHUB_SHA", "")):
+        # Compare peeled commits. An annotated tag push records the tag object
+        # in after and GITHUB_SHA; checkout's HEAD is the underlying commit.
+        head = _peel_to_commit(repo, event.get("after"))
+        if head != _peel_to_commit(repo, os.environ.get("GITHUB_SHA", "")):
             raise ValueError("push_event_head_mismatch")
-        local = _git(repo, "rev-parse", "HEAD").decode("ascii").strip()
+        local = _sha(_git(repo, "rev-parse", "HEAD").decode("ascii", "strict").strip())
         if local != head:
             raise ValueError("checkout_head_mismatch")
         before = _sha(event.get("before"))
-        # Prevent non-fast-forward pushes from silently hiding previously
-        # introduced commits; first branch creation has all-zero before.
-        if before != "0" * 40:
-            _git(repo, "merge-base", "--is-ancestor", before, head)
+        # Branch updates must fast-forward so a force-push cannot hide commits.
+        # Creation uses an all-zero before. Tag moves are not commit-graph
+        # fast-forwards, and the previous value may be an annotated tag object
+        # that checkout no longer has, so refs/tags/* skips that ancestor check
+        # and still audits the peeled head.
+        if before != "0" * 40 and not _push_ref_is_tag(event):
+            before_commit = _peel_to_commit(repo, before)
+            _git(repo, "merge-base", "--is-ancestor", before_commit, head)
         return [head]
     if kind == "workflow_dispatch":
         head = _sha(os.environ.get("GITHUB_SHA", ""))
