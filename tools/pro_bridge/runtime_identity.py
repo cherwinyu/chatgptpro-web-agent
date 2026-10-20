@@ -25,7 +25,8 @@ RELEASE_ROOTS = (
     "capability-manifest.json",
 )
 # Slim Runtime package scope: run modules + licenses/notices + minimal user docs +
-# preview schemas/config. Excludes tests, CI, publication scripts, migration meta.
+# preview schemas/config. Caller guides linked from those docs are included.
+# Excludes tests, CI, publication scripts, and migration meta.
 RUNTIME_PACKAGE_ROOTS = (
     "tools/pro_bridge", "adapters/generic", "schemas", "config",
     "capability-manifest.json",
@@ -33,6 +34,8 @@ RUNTIME_PACKAGE_ROOTS = (
     "README.md", "README.zh-CN.md", "CONTRIBUTING.md",
     "docs/QUICKSTART.md", "docs/QUICKSTART.zh-CN.md",
     "docs/RESEARCH_USE.md", "docs/RESEARCH_USE.zh-CN.md",
+    "docs/INTEGRATION.md", "docs/INTEGRATION.zh-CN.md",
+    "docs/ONLINE_WORKFLOW.md",
     "docs/legal/LICENSE", "docs/legal/LICENSE_SCOPE.md",
 )
 ALLOWED_MANAGED_ROOTS = (RELEASE_ROOTS, RUNTIME_PACKAGE_ROOTS)

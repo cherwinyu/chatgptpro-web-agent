@@ -21,6 +21,10 @@
     {
       "en": "docs/MIGRATION_SCOPE.md",
       "zh-CN": "docs/MIGRATION_SCOPE.zh-CN.md"
+    },
+    {
+      "en": "docs/INTEGRATION.md",
+      "zh-CN": "docs/INTEGRATION.zh-CN.md"
     }
   ]
 }

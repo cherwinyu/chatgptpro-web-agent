@@ -48,7 +48,12 @@ function validateRequest(r) {
 export function readChatGPTPage(request) {
   const present = e => !!e && !e.closest('[hidden],[aria-hidden="true"]');
   const visible = e => present(e) && e.getClientRects().length > 0;
-  const main = document.querySelector('main');
+  // During home -> conversation navigation a stale home main can coexist with
+  // the live conversation main. Select the main owning rendered turns.
+  const owners = [...new Set([...document.querySelectorAll('[data-turn-key]')]
+    .filter(present).map(e => e.closest('main')).filter(e => e && visible(e)))];
+  if (owners.length > 1) return { url: location.href, status: 'UNKNOWN', reason: 'AMBIGUOUS_CONVERSATION' };
+  const main = owners[0] || document.querySelector('main');
   const base = { url: location.href, profile: 'chatgpt-turn-dom-v1', status: 'UNKNOWN' };
   if (!main) return { ...base, reason: 'NO_MAIN' };
   const controls = [...main.querySelectorAll('button,[role="button"]')].filter(visible);
@@ -79,7 +84,7 @@ export function readChatGPTPage(request) {
   }
   const active = controls.some(e => /^(Stop|Stop generating|停止|停止生成|停止回复)$/i.test(name(e))) ||
     [...main.querySelectorAll('[aria-busy="true"]')].some(visible);
-  if (active || ['streaming', 'running', 'pending', 'thinking'].includes(state)) {
+  if (active || ['streaming', 'running', 'pending', 'thinking', 'in_progress'].includes(state)) {
     return { ...base, status: 'RUNNING' };
   }
   const replies = [...turn.querySelectorAll('[data-content-search-unit-key]')]
@@ -98,7 +103,8 @@ export function readChatGPTPage(request) {
   const signature = text + reply.innerHTML;
   for (let i = 0; i < signature.length; i++) hash = Math.imul(hash ^ signature.charCodeAt(i), 16777619) >>> 0;
   return { ...base, status: 'FINAL_CANDIDATE', turnId: turn.getAttribute('data-turn-key'),
-    responseIds: ids, fingerprint: hash.toString(16), contentLength: signature.length };
+    responseIds: ids, fingerprint: hash.toString(16), contentLength: signature.length,
+    ...(request.includeText === true ? { text: reply.innerText } : {}) };
 }
 
 export class CompletionTracker {
@@ -165,19 +171,26 @@ export class BrowserSession {
     validateRequest(request);
     if (!finite(budgetMs) || budgetMs <= 0 || budgetMs > 3600000 ||
         !finite(deadlineAt) || !finite(intervalMs) || intervalMs < 1000 || intervalMs > 60000) fail('INVALID_WAIT_BUDGET');
-    const end = performance.now() + Math.min(budgetMs, Math.max(0, deadlineAt - Date.now()));
+    const deadlineWindow = Math.max(0, deadlineAt - Date.now());
+    // Chosen once. Comparing the two clocks again after the timer fires can
+    // call a deadline-sized wait a host timeout when performance.now runs ahead.
+    const limitedByDeadline = deadlineWindow <= budgetMs;
+    const end = performance.now() + Math.min(budgetMs, deadlineWindow);
     const tracker = new CompletionTracker({ quietMs });
     let lastStatus = 'UNKNOWN', checks = 0;
     const result = status => ({ status, lastStatus, checks, binding: this.binding,
       sendAuthorized: false, deliveryVerified: false, reviewApproved: false, doNotResend: true });
     while (performance.now() < end && Date.now() < deadlineAt) {
       if (signal?.aborted) return result('CANCELLED');
-      const remaining = Math.min(end - performance.now(), deadlineAt - Date.now());
+      const untilDeadline = deadlineAt - Date.now();
+      const untilBudget = end - performance.now();
+      const remaining = Math.min(untilBudget, untilDeadline);
       let snapshot;
       try {
-        snapshot = await bounded(() => this.observe(request, { timeoutMs: Math.min(10000, remaining) }), remaining, signal);
+        snapshot = await boundOperation(() => this.observe(request, { timeoutMs: Math.min(10000, remaining) }), remaining, signal);
       } catch (error) {
-        if (error instanceof HostError && error.code === 'HOST_TIMEOUT' && Date.now() >= deadlineAt) {
+        if (error instanceof HostError && error.code === 'HOST_TIMEOUT' &&
+            (Date.now() >= deadlineAt || limitedByDeadline)) {
           return result('TASK_DEADLINE');
         }
         return result(error instanceof HostError ? error.code : 'BROWSER_UNAVAILABLE');
@@ -187,12 +200,14 @@ export class BrowserSession {
       checks++;
       const state = tracker.update(snapshot, performance.now());
       lastStatus = state.status;
-      if (['PAGE_COMPLETE', 'PAGE_ERROR', 'LOGIN_REQUIRED', 'TARGET_CHANGED'].includes(state.status)) return result(state.status);
+      if (['PAGE_COMPLETE', 'PAGE_ERROR', 'LOGIN_REQUIRED', 'TARGET_CHANGED'].includes(state.status)) {
+        return { ...result(state.status), finalEvidence: state };
+      }
       const delay = Math.min(state.status === 'SETTLING' ? quietMs : intervalMs,
         end - performance.now(), deadlineAt - Date.now());
       if (delay > 0) await pause(delay, signal);
     }
-    return result(Date.now() >= deadlineAt ? 'TASK_DEADLINE' : 'HOST_TIMEOUT');
+    return result(Date.now() >= deadlineAt || limitedByDeadline ? 'TASK_DEADLINE' : 'HOST_TIMEOUT');
   }
 }
 
@@ -204,7 +219,11 @@ function pause(ms, signal) {
     if (signal?.aborted) done();
   });
 }
-function bounded(operation, ms, signal) {
+/** Race one browser call against the remaining time and cancel signal.
+ * Losing the race does not abort the underlying call when the host API cannot
+ * cancel it. Callers must not start another read after this returns.
+ */
+export function boundOperation(operation, ms, signal) {
   return new Promise((resolve, reject) => {
     const cancel = () => finish(reject, new HostError('CANCELLED'));
     const timer = setTimeout(() => finish(reject, new HostError('HOST_TIMEOUT')), Math.ceil(ms));

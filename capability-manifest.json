@@ -31,5 +31,80 @@
       ]
     }
   ],
+  "online_offload": {
+    "status": "HISTORICAL_SINGLE_HOST_OBSERVATION",
+    "certifies_current_tree": false,
+    "date": "2026-10-19",
+    "entrypoint": "adapters/generic/online_host.mjs#offloadTask",
+    "recovery": "adapters/generic/online_host.mjs#recoverTask",
+    "transport": "adapters/generic/local_transport.mjs",
+    "delivery": "browser_response",
+    "visible_model_label": "GPT-6",
+    "visible_effort_label": "Pro",
+    "send_attempts": 1,
+    "result_characters": 325,
+    "result_sha256": "a2acd364a60eb7e6593e895996825c526a495d2fb6d9d744876bfc2307950756",
+    "runtime_source_digest_at_collection": "4fe06dd107a243e016728081e311e8056f6fa12b05ee83d80632ac27ebcb9784",
+    "acceptance_scope": "One synthetic read-only task; Chinese ordinary Chat in Codex desktop in-app browser",
+    "limitations": [
+      "Other hosts/locales not accepted",
+      "No GitHub writer",
+      "No measured token saving",
+      "Local working-tree evidence, not release or cloud CI certification"
+    ],
+    "documentation": "docs/ONLINE_WORKFLOW.md"
+  },
+  "synthetic_online_acceptance": {
+    "status": "SINGLE_HOST_SYNTHETIC_ONLINE_ACCEPTED",
+    "date": "2026-10-20",
+    "accepted_commit": "4399582ddc500216cf4a6034f273946f2b79208d",
+    "certifies_current_tree": false,
+    "covers_only_runtime_digest": "68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39",
+    "runtime_roots": ["tools/pro_bridge", "adapters/generic"],
+    "entrypoint": "adapters/generic/online_host.mjs#offloadTask",
+    "recovery": "adapters/generic/online_host.mjs#recoverTask",
+    "delivery": "browser_response",
+    "host": "Windows Codex in-app browser, Chinese ordinary Chat, logged in",
+    "evidence_origin": "owner_handoff",
+    "documentation_executed_acceptance": false,
+    "selection": {
+      "visible_model_label": "GPT-6",
+      "visible_effort_label": "Pro",
+      "model_evidence_source": "preclaim_menu",
+      "closed_control_showed_only_effort": true,
+      "closed_control_confirms_model": false,
+      "concurrent_model_switch_ruled_out": false,
+      "label_meaning": "visible page labels, not backend model identity"
+    },
+    "flow": [
+      "one offloadTask of a self-contained synthetic read-only review",
+      "HOST_TIMEOUT while the page was still generating; send_status SEND_CLICKED",
+      "recoverTask on the same receipt returned COLLECTED",
+      "host JavaScript runtime restart, module reload, original tab rebound, recoverTask returned COLLECTED"
+    ],
+    "send_attempts": 1,
+    "result_characters": 296,
+    "result_truncated": false,
+    "result_sha256": "e6e40e1bef2265a97e1d44a89395290132ae6af012b6f9233fdc82bea6b3d7e8",
+    "bounded_read_characters": 120,
+    "bounded_read_truncated": true,
+    "content_review": "The primary agent reviewed the reply against a mean() task that had filtered zeros. The reply ignored only None, kept zeros, and treated empty or all-None input as None. Three examples were 1.0, None, and None.",
+    "windows_ci_for_accepted_commit": "https://github.com/cherwinyu/chatgptpro-web-agent/actions/runs/39298630734",
+    "acceptance_scope": "One synthetic read-only task on one Windows Codex Chinese ordinary-Chat host",
+    "limitations": [
+      "One host and one locale",
+      "One synthetic task, not a production workload",
+      "Visible labels are not backend model identity",
+      "The closed control did not independently confirm the model",
+      "A concurrent human model switch after the menu closed was not ruled out",
+      "No measured token or subscription saving",
+      "Not production-ready",
+      "Other hosts, locales, and consumer projects are not accepted",
+      "A consumer project must run its own synthetic online acceptance",
+      "The same runtime digest does not accept a later tree whose runtime files differ",
+      "Page completion, stored body, content review, and Git verification are separate conclusions"
+    ],
+    "documentation": "docs/ONLINE_WORKFLOW.md"
+  },
   "model_or_fee_claim": "NOT_OBSERVABLE"
 }
