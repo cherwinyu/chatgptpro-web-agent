@@ -7,6 +7,20 @@ use that same form, or the exact GitHub web squash/merge committer: the name
 "GitHub" with the mailbox noreply@github.com. Any other name on that mailbox
 is rejected.
 
+Annotated tag pushes store the tag object in the event after field and in
+GITHUB_SHA, while actions/checkout peels that tag and leaves HEAD on the
+commit. Those objects are peeled to commits before head comparison. The
+branch fast-forward check is skipped only when event.ref and GITHUB_REF
+both name that same refs/tags/* ref. A missing ref is not a tag push.
+The peeled tag's reachable commit history is still checked in full, with
+no baseline or SHA exemption.
+
+The pushed tag object also has a tagger identity. That tagger must use the
+same no-reply identities as a commit author or committer: a
+users.noreply.github.com address, or the exact GitHub web committer. The
+tag message is not an identity field. Tag objects this push does not name
+are outside this event check.
+
 This checks local Git objects only, performs no fetch or mutation, and never
 prints email values. Matching a no-reply mailbox is an offline privacy filter.
 It is not cryptographic proof that GitHub signed the commit, and it does not
@@ -146,7 +160,130 @@ def inspect_history(repo: Path, heads: list[str] | None = None, *, all_refs: boo
             "historical_exemption": False, "full_email_values_exposed": False}
 
 
-def _event_heads(repo: Path, event_path: Path) -> list[str]:
+def _object_kind(repo: Path, oid: str) -> str:
+    kind = _git(repo, "cat-file", "-t", oid).decode("ascii", "strict").strip()
+    if kind not in {"blob", "commit", "tag", "tree"}:
+        raise ValueError("untrusted_git_object_type")
+    return kind
+
+
+def _peel_to_commit(repo: Path, value: object) -> str:
+    """Return a commit SHA, peeling an annotated tag object when needed.
+
+    Lightweight tag pushes already name a commit. Trees, blobs, and missing
+    objects fail closed. Callers must not print the SHA beside identity data.
+    """
+    oid = _sha(value)
+    kind = _object_kind(repo, oid)
+    if kind == "commit":
+        return oid
+    if kind != "tag":
+        raise ValueError("push_sha_not_commit_or_tag")
+    peeled = _sha(_git(repo, "rev-parse", oid + "^{commit}").decode("ascii", "strict").strip())
+    if _object_kind(repo, peeled) != "commit":
+        raise ValueError("peeled_tag_not_a_commit")
+    return peeled
+
+
+def _push_ref_is_tag(event: dict) -> bool:
+    """True only when both ref sources name the same refs/tags/* ref.
+
+    A missing ref must not skip the branch fast-forward check. One refs/tags/*
+    value with the other side absent is not evidence of a tag push. When both
+    name a ref and they differ, fail closed.
+    """
+    event_ref = event.get("ref")
+    if not isinstance(event_ref, str):
+        event_ref = ""
+    env_ref = os.environ.get("GITHUB_REF", "")
+    if event_ref.startswith("refs/") and env_ref.startswith("refs/") and event_ref != env_ref:
+        raise ValueError("push_ref_mismatch")
+    if event_ref != env_ref or not event_ref.startswith("refs/tags/"):
+        return False
+    # "refs/tags/" with no tag name is not a trusted tag ref.
+    return len(event_ref) > len("refs/tags/")
+
+
+def _read_tag_header(repo: Path, oid: str) -> tuple[str, str, str, str]:
+    """Return target SHA, target type, tagger name, and tagger mailbox.
+
+    Peel one tag level from the object header. rev-parse ^{} peels through
+    every nested tag and would skip an inner tagger. Callers must not print
+    the mailbox.
+    """
+    try:
+        text = _git(repo, "cat-file", "-p", oid).decode("utf-8", "strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("tag_identity_unreadable") from exc
+    header = text.split("\n\n", 1)[0]
+    target = ""
+    target_type = ""
+    tagger_line = None
+    for line in header.splitlines():
+        if line.startswith("object ") and target == "":
+            target = line[len("object "):].strip()
+        elif line.startswith("type ") and target_type == "":
+            target_type = line[len("type "):].strip()
+        elif line.startswith("tagger ") and tagger_line is None:
+            tagger_line = line
+    if (tagger_line is None or not COMMIT.fullmatch(target)
+            or target_type not in {"blob", "commit", "tag", "tree"}):
+        raise ValueError("tag_identity_unreadable")
+    start = tagger_line.rfind("<")
+    end = tagger_line.rfind(">")
+    if start < len("tagger ") or end <= start + 1:
+        raise ValueError("tag_identity_unreadable")
+    name = tagger_line[len("tagger "):start]
+    if not name.endswith(" "):
+        raise ValueError("tag_identity_unreadable")
+    # Drop only the separator git writes before <mailbox>. The name itself
+    # keeps any other whitespace, matching the committer name check.
+    name = name[:-1]
+    email = tagger_line[start + 1:end]
+    if email == "":
+        raise ValueError("tag_identity_unreadable")
+    return target.lower(), target_type, name, email
+
+
+def _tagger_allowed(email: str, name: str) -> bool:
+    # Same accepted identities as commit author/committer.
+    if _is_user_noreply(email):
+        return True
+    return _is_github_web_committer(email, name)
+
+
+def _flagged_tagger_prefixes(repo: Path, *values: object) -> list[str]:
+    pending: list[str] = []
+    queued: set[str] = set()
+    for value in values:
+        oid = _sha(value)
+        if oid in queued or _object_kind(repo, oid) != "tag":
+            continue
+        queued.add(oid)
+        pending.append(oid)
+    flagged: list[str] = []
+    seen: set[str] = set()
+
+    def walk(oid: str, stack: set[str]) -> None:
+        if oid in stack or len(seen) >= 8:
+            raise ValueError("tag_chain_unreadable")
+        if oid in seen:
+            return
+        seen.add(oid)
+        target, target_type, name, email = _read_tag_header(repo, oid)
+        if not _tagger_allowed(email, name):
+            flagged.append(oid[:12])
+        if target_type == "tag":
+            walk(target, stack | {oid})
+        elif target_type != "commit":
+            raise ValueError("peeled_tag_not_a_commit")
+
+    for oid in pending:
+        walk(oid, set())
+    return flagged
+
+
+def _event_heads(repo: Path, event_path: Path) -> tuple[list[str], list[str]]:
     if not event_path.is_file() or event_path.stat().st_size > MAX_EVENT_BYTES:
         raise ValueError("missing_or_oversized_workflow_event")
     event = json.loads(event_path.read_text(encoding="utf-8"))
@@ -162,25 +299,32 @@ def _event_heads(repo: Path, event_path: Path) -> list[str]:
             raise ValueError("pr_branches_missing")
         # GitHub's synthetic checkout merge commit need not have the chosen
         # author identity, so inspect the actual PR head and target base.
-        return [_sha(base.get("sha")), _sha(head.get("sha"))]
+        return [_sha(base.get("sha")), _sha(head.get("sha"))], []
     if kind == "push":
-        head = _sha(event.get("after"))
-        if head != _sha(os.environ.get("GITHUB_SHA", "")):
+        # Compare peeled commits. An annotated tag push records the tag object
+        # in after and GITHUB_SHA; checkout's HEAD is the underlying commit.
+        head = _peel_to_commit(repo, event.get("after"))
+        if head != _peel_to_commit(repo, os.environ.get("GITHUB_SHA", "")):
             raise ValueError("push_event_head_mismatch")
-        local = _git(repo, "rev-parse", "HEAD").decode("ascii").strip()
+        local = _sha(_git(repo, "rev-parse", "HEAD").decode("ascii", "strict").strip())
         if local != head:
             raise ValueError("checkout_head_mismatch")
         before = _sha(event.get("before"))
-        # Prevent non-fast-forward pushes from silently hiding previously
-        # introduced commits; first branch creation has all-zero before.
-        if before != "0" * 40:
-            _git(repo, "merge-base", "--is-ancestor", before, head)
-        return [head]
+        # Branch updates must fast-forward so a force-push cannot hide commits.
+        # Creation uses an all-zero before. Tag moves are not commit-graph
+        # fast-forwards, and the previous value may be an annotated tag object
+        # that checkout no longer has. Skip that ancestor check only when both
+        # ref sources agree this is a tag push; still audit the peeled head.
+        if before != "0" * 40 and not _push_ref_is_tag(event):
+            before_commit = _peel_to_commit(repo, before)
+            _git(repo, "merge-base", "--is-ancestor", before_commit, head)
+        return [head], _flagged_tagger_prefixes(
+            repo, event.get("after"), os.environ.get("GITHUB_SHA", ""))
     if kind == "workflow_dispatch":
         head = _sha(os.environ.get("GITHUB_SHA", ""))
         if _git(repo, "rev-parse", "HEAD").decode("ascii").strip() != head:
             raise ValueError("dispatch_checkout_mismatch")
-        return [head]
+        return [head], []
     raise ValueError("unsupported_event_type")
 
 
@@ -202,7 +346,14 @@ def main(argv=None) -> int:
             result = {"status": "PASS" if _is_user_noreply(address) else "BLOCKED_PERSONAL_EMAIL",
                       "check": "local_git_user_email", "full_email_values_exposed": False}
         elif args.event:
-            result = inspect_history(repo, _event_heads(repo, args.event))
+            heads, tagger_flags = _event_heads(repo, args.event)
+            result = inspect_history(repo, heads)
+            if tagger_flags:
+                # Prefix only. The mailbox stays in the tag object and out of
+                # this result.
+                result["status"] = "BLOCKED_PERSONAL_EMAIL"
+                result["flagged_tag_prefixes"] = tagger_flags
+                result["full_email_values_exposed"] = False
         elif args.all_refs:
             result = inspect_history(repo, all_refs=True)
         else:
