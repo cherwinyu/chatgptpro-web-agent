@@ -43,6 +43,7 @@ tests/audit/test_deployment.py
 tests/audit/test_receipts.py
 tests/audit/test_selection.py
 tests/pro_bridge/test_faults.py
+tests/pro_bridge/test_runtime_package.py
 tests/pro_bridge/test_security.py
 tests/publication/test_commit_identity_gate.py
 tests/publication/test_preview_publication.py

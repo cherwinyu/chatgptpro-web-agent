@@ -24,6 +24,22 @@ RELEASE_ROOTS = (
     "context", "config", "tests", "reports", "README.md", "README.zh-CN.md", "AGENTS.md",
     "capability-manifest.json",
 )
+# Slim Runtime package scope: run modules + licenses/notices + minimal user docs +
+# preview schemas/config. Excludes tests, CI, publication scripts, migration meta.
+RUNTIME_PACKAGE_ROOTS = (
+    "tools/pro_bridge", "adapters/generic", "schemas", "config",
+    "capability-manifest.json",
+    "LICENSE", "THIRD_PARTY_NOTICES.md", "SECURITY.md",
+    "README.md", "README.zh-CN.md", "CONTRIBUTING.md",
+    "docs/QUICKSTART.md", "docs/QUICKSTART.zh-CN.md",
+    "docs/RESEARCH_USE.md", "docs/RESEARCH_USE.zh-CN.md",
+    "docs/legal/LICENSE", "docs/legal/LICENSE_SCOPE.md",
+)
+ALLOWED_MANAGED_ROOTS = (RELEASE_ROOTS, RUNTIME_PACKAGE_ROOTS)
+PACKAGE_KIND_ROOTS = {
+    "release": RELEASE_ROOTS,
+    "runtime": RUNTIME_PACKAGE_ROOTS,
+}
 REQUIRED = ("tools/pro_bridge/cli.py", "tools/pro_bridge/bridge_v2.py",
             "tools/pro_bridge/git_verify.py", "tools/pro_bridge/browser_target.py",
             "tools/pro_bridge/runtime_identity.py", "adapters/generic/run_bridge.py")
@@ -37,6 +53,27 @@ def digest(raw: bytes) -> str:
 
 def mapping_digest(files: dict[str, str]) -> str:
     return digest(json.dumps(files, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def managed_roots_for(package_kind: str = "release") -> tuple[str, ...]:
+    try:
+        return PACKAGE_KIND_ROOTS[package_kind]
+    except KeyError as exc:
+        raise ValueError("package_kind must be 'release' or 'runtime'") from exc
+
+
+def allowed_managed_roots(value: object) -> bool:
+    return value in (list(RELEASE_ROOTS), list(RUNTIME_PACKAGE_ROOTS))
+
+
+def consistent_package_kind(manifest: dict) -> bool:
+    """package_kind must match managed_roots; legacy (no kind) => RELEASE_ROOTS only."""
+    roots = manifest.get("managed_roots")
+    kind = manifest.get("package_kind")
+    if kind is None:
+        return roots == list(RELEASE_ROOTS)
+    return isinstance(kind, str) and kind in PACKAGE_KIND_ROOTS and roots == list(PACKAGE_KIND_ROOTS[kind])
+
 
 
 def in_scope(name: str, scopes: tuple[str, ...] = RELEASE_ROOTS) -> bool:
@@ -114,17 +151,18 @@ def read_manifest(root: Path) -> tuple[dict, str]:
         raise ValueError("release manifest too large")
     manifest = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique)
     if (not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int
-            or manifest["schema_version"] != 1 or manifest.get("managed_roots") != list(RELEASE_ROOTS)
+            or manifest["schema_version"] != 1 or not allowed_managed_roots(manifest.get("managed_roots")) or not consistent_package_kind(manifest)
             or manifest.get("runtime_roots") != list(RUNTIME_ROOTS)
             or not isinstance(manifest.get("source_commit"), str)
             or not COMMIT.fullmatch(manifest["source_commit"])):
         raise ValueError("invalid release manifest header or scope")
+    managed = tuple(manifest["managed_roots"])
     files = manifest.get("files")
     if not isinstance(files, dict) or not all(key in files for key in REQUIRED):
         raise ValueError("release manifest omits required source files")
     folded = set()
     for name, value in files.items():
-        if (not safe_name(name) or not in_scope(name) or name.casefold() in folded
+        if (not safe_name(name) or not in_scope(name, managed) or name.casefold() in folded
                 or not isinstance(value, str) or not HEX64.fullmatch(value)):
             raise ValueError("invalid release file entry: " + str(name))
         folded.add(name.casefold())
@@ -162,7 +200,8 @@ def describe(root: Path, trusted_manifest_sha256: str | None = None, *, module_f
         manifest, manifest_hash = read_manifest(root)
         result["claimed_source_commit"] = manifest["source_commit"]
         result["source_manifest_sha256"] = manifest_hash
-        actual = inventory(root)
+        result["managed_roots"] = list(manifest["managed_roots"])
+        actual = inventory(root, tuple(manifest["managed_roots"]))
         expected = manifest["files"]
         missing = sorted(set(expected) - set(actual))
         extra = sorted(set(actual) - set(expected))

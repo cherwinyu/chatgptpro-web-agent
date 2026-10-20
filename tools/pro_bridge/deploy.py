@@ -68,7 +68,11 @@ def _snapshot(root: Path) -> dict[str, str]:
     return dict(sorted(result.items()))
 
 
-def export_release(repo: Path, commit: str, output: Path) -> dict:
+def export_runtime_release(repo: Path, commit: str, output: Path) -> dict:
+    return export_release(repo, commit, output, package_kind="runtime")
+
+
+def export_release(repo: Path, commit: str, output: Path, *, package_kind: str = "release") -> dict:
     if not identity.COMMIT.fullmatch(commit):
         raise ValueError("export requires a full immutable commit SHA")
     resolved = _git(repo, "rev-parse", "--verify", commit + "^{commit}").decode("ascii").strip()
@@ -83,6 +87,7 @@ def export_release(repo: Path, commit: str, output: Path) -> dict:
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix="." + output.name + ".export-", dir=output.parent))
     try:
+        roots = identity.managed_roots_for(package_kind)
         files: dict[str, str] = {}
         folded: set[str] = set()
         for entry in _git(repo, "ls-tree", "-r", "-z", commit).split(b"\0"):
@@ -91,7 +96,7 @@ def export_release(repo: Path, commit: str, output: Path) -> dict:
             metadata, raw_name = entry.split(b"\t", 1)
             mode, kind, oid = metadata.split()
             name = raw_name.decode("utf-8")
-            if not identity.in_scope(name):
+            if not identity.in_scope(name, roots):
                 continue
             if (not identity.safe_name(name) or name.casefold() in folded
                     or kind != b"blob" or mode not in (b"100644", b"100755")):
@@ -103,8 +108,8 @@ def export_release(repo: Path, commit: str, output: Path) -> dict:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(raw)
             files[name] = identity.digest(raw)
-        manifest = {"schema_version": 1, "source_commit": commit,
-                    "managed_roots": list(identity.RELEASE_ROOTS), "runtime_roots": list(identity.RUNTIME_ROOTS),
+        manifest = {"schema_version": 1, "source_commit": commit, "package_kind": package_kind,
+                    "managed_roots": list(roots), "runtime_roots": list(identity.RUNTIME_ROOTS),
                     "files": dict(sorted(files.items())),
                     "runtime_source_digest": identity.mapping_digest({p: h for p, h in files.items() if identity.in_scope(p, identity.RUNTIME_ROOTS)})}
         _write_json(stage / identity.MANIFEST, manifest)
@@ -508,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
     export.add_argument("--repository", type=Path, required=True)
     export.add_argument("--commit", required=True)
     export.add_argument("--output", type=Path, required=True)
+    export.add_argument("--package-kind", choices=("release", "runtime"), default="release")
     install = sub.add_parser("install", allow_abbrev=False)
     install.add_argument("--bundle", type=Path, required=True)
     install.add_argument("--destination", type=Path, required=True)
@@ -523,7 +529,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "export":
-            result = export_release(args.repository, args.commit, args.output)
+            result = export_release(args.repository, args.commit, args.output, package_kind=args.package_kind)
         elif args.command == "install":
             result = install_release(args.bundle, args.destination, args.manifest_sha256,
                                      quiesced=args.quiesced, skill=args.skill)
