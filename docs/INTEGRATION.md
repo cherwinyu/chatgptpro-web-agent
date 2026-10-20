@@ -13,6 +13,26 @@ This page is for a primary agent in another repository. The helper hands one bou
 
 No model API key is stored here. Do not put credentials, cookies or unauthorized private material in the task file.
 
+## Which snapshot to install
+
+Clone or extract the commit you intend to call. The published pre-release tag `v0.1.0-rc.3` is commit `3051279bd6533d27a7675f8de922a326008cadf5`. That tag and its Release assets are an earlier snapshot. That pre-release does not include the online offload: `offloadTask`, `adapters/generic/online_host.mjs`, `adapters/generic/local_transport.mjs`, and this guide's online page are not in those assets. Do not install `v0.1.0-rc.3` and expect the calls on this page.
+
+No formal versioned Release includes this offload. This page does not create a tag. A candidate package name is not a published tag, a formal Release, or online acceptance. The 2026-10-20 acceptance of commit `4399582ddc500216cf4a6034f273946f2b79208d` does not transfer to a later `runtime_source_digest`.
+
+## Confirm the installed runtime matches that commit
+
+Install the runtime package into its own directory, outside the Git checkout used to build it. From that install:
+
+```powershell
+py -3.12 adapters/generic/run_bridge.py identify --trusted-manifest-sha256 <pin>
+```
+
+`<pin>` is the SHA-256 of that package's `release-manifest.json`, taken from a channel you trust independently. Hashing an unchecked copy and then trusting that hash is not an independent pin.
+
+Require `provenance_status` `VERIFIED`, `source_commit` equal to the commit you pinned, and `runtime_source_digest` equal to the digest of `tools/pro_bridge` and `adapters/generic` for that same commit. `UNTRUSTED_MANIFEST` means the pin was missing. `TRUST_ANCHOR_MISMATCH` means the pin does not match this manifest. `MISMATCH` means a managed file is missing, modified, or extra. `package_kind` `runtime` and `release` are different file sets and must not be substituted for each other. `worktree_git_head` only names a Git directory that happens to enclose the install. `NOT_AVAILABLE` is expected for a clean install that is not a checkout, and it is not the source identity. `identify` does not contact ChatGPT.
+
+The 2026-10-20 acceptance covers runtime digest `68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39` only.
+
 ## What the primary agent calls
 
 Import `adapters/generic/online_host.mjs` inside the host browser runtime. `offloadTask` prepares the ledger receipt, checks the visible model and effort, claims one send, clicks once, waits, and returns a bounded excerpt. `recoverTask` reloads that same receipt and never clicks send.

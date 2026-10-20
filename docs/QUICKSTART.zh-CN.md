@@ -9,7 +9,7 @@ py -3.12 adapters/generic/run_bridge.py demo --json
 py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/manifest.example.json --lang zh-CN --json
 ```
 
-演示仅使用临时合成数据，不发送真实 ChatGPT 消息，也不使用 GitHub 登录凭据。预览中的 `send_authorized` 必须为 `false`；中英文机器 JSON 字段保持一致。未经独立的发行 manifest 和可信哈希验证，不宣称安装来源通过认证。
+演示仅使用临时合成数据，不发送真实 ChatGPT 消息，也不使用 GitHub 登录凭据。预览中的 `send_authorized` 必须为 `false`；中英文机器 JSON 字段保持一致。未经独立的发行 manifest 和可信哈希验证，不宣称安装来源通过认证。已发布的预发布标签 `v0.1.0-rc.3` 不包含这次在线分担。已安装运行时是否匹配所固定的提交，按[接入说明](INTEGRATION.zh-CN.md)里的身份检查核对。
 
 本页演示只验证离线能力，不会发送聊天消息。宿主可调用的分担入口是 [offloadTask](INTEGRATION.zh-CN.md)；限制条件和浏览器记录见[在线流程](ONLINE_WORKFLOW.md)。演示不自动授予第三方服务访问权限，详见[研究限制](RESEARCH_USE.zh-CN.md)。
 

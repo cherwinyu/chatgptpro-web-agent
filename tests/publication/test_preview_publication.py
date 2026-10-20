@@ -153,4 +153,33 @@ class PublicPreviewTests(unittest.TestCase):
             self.assertIn('recoverTask', body)
             self.assertNotIn('token savings achieved', body.lower())
 
+    def test_rc3_pre_release_is_not_the_offload_snapshot(self):
+        """Consumers must not treat the published rc.3 tag as the offload tree."""
+        en = (self.root/'docs/INTEGRATION.md').read_text(encoding='utf-8')
+        zh = (self.root/'docs/INTEGRATION.zh-CN.md').read_text(encoding='utf-8')
+        readme = (self.root/'README.md').read_text(encoding='utf-8')
+        readme_zh = (self.root/'README.zh-CN.md').read_text(encoding='utf-8')
+        rc3 = '3051279bd6533d27a7675f8de922a326008cadf5'
+        for body in (en, zh):
+            self.assertIn('v0.1.0-rc.3', body)
+            self.assertIn(rc3, body)
+            self.assertIn('identify --trusted-manifest-sha256', body)
+            self.assertIn('provenance_status', body)
+            self.assertIn('VERIFIED', body)
+            self.assertIn('runtime_source_digest', body)
+            self.assertIn('package_kind', body)
+            self.assertIn('NOT_AVAILABLE', body)
+        self.assertIn('does not include the online offload', en)
+        self.assertIn('不包含这次在线分担', zh)
+        self.assertIn('does not include the online offload', readme)
+        self.assertIn('不包含这次在线分担', readme_zh)
+        self.assertNotIn(rc3, readme)
+        self.assertNotIn(rc3, readme_zh)
+        quick = (self.root/'docs/QUICKSTART.md').read_text(encoding='utf-8')
+        quick_zh = (self.root/'docs/QUICKSTART.zh-CN.md').read_text(encoding='utf-8')
+        self.assertIn('v0.1.0-rc.3', quick)
+        self.assertIn('does not include the online offload', quick)
+        self.assertIn('v0.1.0-rc.3', quick_zh)
+        self.assertIn('不包含这次在线分担', quick_zh)
+
 if __name__=='__main__':unittest.main()

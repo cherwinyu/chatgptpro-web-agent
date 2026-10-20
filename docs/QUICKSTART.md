@@ -9,7 +9,7 @@ py -3.12 adapters/generic/run_bridge.py demo --json
 py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/manifest.example.json --lang en --json
 ```
 
-The demo creates disposable synthetic fixtures, performs no live ChatGPT send and uses no GitHub credentials. `send_authorized` must be `false` in the preview. JSON keys remain the same for English and Simplified Chinese. The project does not guarantee deployment identity unless separately supplied with a verified release manifest and trust anchor.
+The demo creates disposable synthetic fixtures, performs no live ChatGPT send and uses no GitHub credentials. `send_authorized` must be `false` in the preview. JSON keys remain the same for English and Simplified Chinese. The project does not guarantee deployment identity unless separately supplied with a verified release manifest and trust anchor. The published pre-release tag `v0.1.0-rc.3` does not include the online offload. Confirm an installed runtime against the pinned commit with the identity check in the [integration guide](INTEGRATION.md).
 
 This quick start tests the local/offline demo. It does not send a chat message. The host-callable handoff is [offloadTask](INTEGRATION.md); its limits and the browser notes are in [online offloading](ONLINE_WORKFLOW.md). The demo does not authorize hosted-service access. [Research limitations](RESEARCH_USE.md).
 
