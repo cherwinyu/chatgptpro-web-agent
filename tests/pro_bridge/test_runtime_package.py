@@ -64,6 +64,9 @@ class RuntimePackageTests(unittest.TestCase):
             "CONTRIBUTING.md",
             "docs/legal/LICENSE",
             "docs/legal/LICENSE_SCOPE.md",
+            "docs/INTEGRATION.md",
+            "docs/INTEGRATION.zh-CN.md",
+            "docs/ONLINE_WORKFLOW.md",
         ):
             self.assertIn(name, man["files"])
         # Slim: no tests / CI / publication scripts in managed map

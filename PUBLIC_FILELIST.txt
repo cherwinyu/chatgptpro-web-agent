@@ -9,11 +9,16 @@ README.zh-CN.md
 SECURITY.md
 THIRD_PARTY_NOTICES.md
 adapters/generic/browser_host.mjs
+adapters/generic/local_transport.mjs
+adapters/generic/online_host.mjs
 adapters/generic/run_bridge.py
 capability-manifest.json
 config/bridge.example.env
+docs/INTEGRATION.md
+docs/INTEGRATION.zh-CN.md
 docs/MIGRATION_SCOPE.md
 docs/MIGRATION_SCOPE.zh-CN.md
+docs/ONLINE_WORKFLOW.md
 docs/QUICKSTART.md
 docs/QUICKSTART.zh-CN.md
 docs/RESEARCH_USE.md
@@ -31,6 +36,9 @@ schemas/result.example.json
 schemas/ui-selection.example.json
 scripts/commit_identity_gate.py
 scripts/publication_audit.py
+tests/audit/browser_host.test.mjs
+tests/audit/online_host.test.mjs
+tests/audit/test_browser_delivery.py
 tests/audit/test_deployment.py
 tests/audit/test_receipts.py
 tests/audit/test_selection.py

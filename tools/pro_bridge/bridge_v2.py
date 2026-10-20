@@ -14,6 +14,8 @@ import json
 import math
 import os
 import re
+import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -384,19 +386,40 @@ class LiveClock(Clock):
 
 
 class FileLock:
-    """Windows mutex. A dead owner is abandoned by the OS; the ledger file is never deleted."""
+    """Exclusive ledger lock. Windows uses a named mutex whose dead owner the OS abandons.
+
+    Other platforms use a file lock plus an in-process lock so the same ledger
+    transitions can be regression-tested. That branch is not a supported host.
+    The ledger file is never deleted.
+    """
+
+    _threads: dict[str, threading.Lock] = {}
+    _threads_guard = threading.Lock()
 
     def __init__(self, path: Path, timeout: float = 15.0) -> None:
         self.path = Path(path)
         self.timeout = timeout
         self._handle = None
+        self._owned_thread = None
+        self._file = None
 
     def _mutex_name(self) -> str:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(str(self.path.resolve()).encode("utf-8")).hexdigest()[:24]
         return "Local\\AgentHandoffBridge-" + digest
 
+    def _thread_lock(self) -> threading.Lock:
+        key = self._mutex_name()
+        with self._threads_guard:
+            lock = self._threads.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._threads[key] = lock
+            return lock
+
     def __enter__(self) -> "FileLock":
+        if sys.platform != "win32":
+            return self._enter_posix()
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         handle = kernel.CreateMutexW(None, False, self._mutex_name())
         if not handle:
@@ -414,7 +437,45 @@ class FileLock:
         self._handle = None
         raise LockTimeout()
 
+    def _enter_posix(self) -> "FileLock":
+        import fcntl
+        thread_lock = self._thread_lock()
+        if not thread_lock.acquire(timeout=self.timeout):
+            raise LockTimeout()
+        self._owned_thread = thread_lock
+        deadline = time.monotonic() + self.timeout
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._file = self.path.open("a+b")
+            while True:
+                try:
+                    fcntl.flock(self._file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return self
+                except OSError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise LockTimeout()
+                    time.sleep(min(0.02, remaining))
+        except BaseException:
+            if self._file is not None:
+                self._file.close()
+                self._file = None
+            thread_lock.release()
+            self._owned_thread = None
+            raise
+
     def __exit__(self, exc_type, exc, tb) -> None:
+        if self._file is not None:
+            import fcntl
+            try:
+                fcntl.flock(self._file.fileno(), fcntl.LOCK_UN)
+            finally:
+                self._file.close()
+                self._file = None
+            if self._owned_thread is not None:
+                self._owned_thread.release()
+                self._owned_thread = None
+            return None
         if self._handle is None:
             return None
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -608,6 +669,11 @@ class Ledger:
         stored_bytes = canonical_bytes(stored)
         with FileLock(self.lock_path):
             data = self._read()
+            incoming = stored.get("source_repository")
+            for other in data["tasks"].values():
+                existing = other.get("source_repository")
+                if isinstance(existing, str) and isinstance(incoming, str) and existing != incoming:
+                    raise ValueError("ledger_repository_mismatch")
             current = data["tasks"].get(stored["task_id"])
             if current is None:
                 record = self._new_record(stored)

@@ -1,14 +1,27 @@
 # chatgptpro-web-agent
 
-[简体中文](README.zh-CN.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
+[简体中文](README.zh-CN.md) · [Integrate a primary agent](docs/INTEGRATION.md) · [Online workflow](docs/ONLINE_WORKFLOW.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
 
-**Windows offline research bridge for agent task handoffs: at-most-once local send claims, original receipts, and Git result checks—with synthetic data only. Not a live ChatGPT client or official OpenAI product.**
+**A Windows research helper that lets a host agent hand a bounded analysis to ordinary web ChatGPT, wait for it, and collect the reply locally.**
 
-This repository is a publicly available independent noncommercial research preview under PolyForm Noncommercial 1.0.0. `cherwinyu/chatgptpro-web-agent` is a fresh-history, allowlisted research subset, not a fork or clone of the prior internal engineering workspace. The repository name is not an OpenAI product name. It is not affiliated with or endorsed by OpenAI. No formal versioned Release has been published. Public source availability does not imply a verified live ChatGPT integration, production readiness, OpenAI endorsement, or permission to use third-party services.
+## Why we built it
 
-## What can be tested
+An agent working in a local repository sometimes needs a second, substantial analysis: a code review, an architecture comparison, or a synthesis of material. We wanted a repeatable way to give that work to a web ChatGPT conversation, while the local agent keeps responsibility for context, local tools and the final decision. A useful handoff needs more than pasting a prompt: it must identify the task, avoid accidental duplicate sends, wait within a deadline, recover an interrupted session and bring the right answer back.
 
-A Windows-oriented reference implementation for bounded agent task handoffs, local at-most-once send entitlements, original task receipts, and Git result checks. The supported first-run flow is **offline only** and uses disposable synthetic data.
+Our initial hypothesis was that moving suitable work out of the main agent **might** reduce its token or subscription usage. That remains an open question, not a project result or a promised benefit. Packaging material, operating the browser, waiting and reviewing the answer also have costs; total usage may stay the same or increase. The current goal is to make task sharing usable and inspectable so that its value can be evaluated on real workloads.
+
+## What is included
+
+- An optional CUA browser-host adapter for observed model/effort checks, one send, completion detection and response collection.
+- A local Python ledger with immutable task manifests, original receipts, single-send claims and recovery checks.
+- A direct `browser_response` path for self-contained analysis, plus the separate original Git-result verification path.
+- A bounded, hash-checked result reader for the main agent, synthetic fixtures, offline regressions and Windows CI.
+
+This is an independent noncommercial research preview, publicly available under PolyForm Noncommercial 1.0.0. It has fresh Git history and an explicit file allowlist. It is not an official OpenAI product or endorsed integration, and no formal versioned Release has been published.
+
+## How to start
+
+First run the credential-free offline demo from this repository's root:
 
 ```powershell
 py -3.12 adapters/generic/run_bridge.py demo --json
@@ -17,15 +30,19 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 Requirements: Windows, Python 3.12, Git 2.32+. No credential, session cookie, account login or model API key is required to run these examples. The permission preview always reports `send_authorized=false`; it cannot create a send entitlement.
 
-## Not an online integration claim
+For an actual handoff, the host additionally needs Node.js 22+, its documented CUA browser API and a logged-in ordinary Chat page. In that host's JavaScript browser runtime, call `offloadTask` once. If the page is still generating, call `recoverTask` on the same receipt for another wait. It does not click send. The [integration guide](docs/INTEGRATION.md) is the caller contract. The [online guide](docs/ONLINE_WORKFLOW.md) records selectors, failure behavior, and the browser notes. A terminal alone cannot drive the browser, and putting local file paths in a prompt does not upload their contents.
 
-This source preserves parts of the host-integration research interface, but **does not ship a universal browser driver, a hosted-model client, GitHub writer, or a certified live ChatGPT automation**. A functioning offline test does not prove account/service authorization, UI stability, model tier, cost, or end-to-end delivery. This preview does not include a verified online ChatGPT send. Avoid using it with real credentials or proprietary repositories without independent authorization.
+## Online integration scope
+
+On 2026-10-19 a synthetic read-only review completed in the Codex in-app browser with visible labels GPT-6 / Pro. Its 325-character rendered reply was collected; original-receipt recovery retained one send attempt and the same reply hash. That run is the historical record in `capability-manifest.json`. Its runtime digest does not match later trees, so the run does not certify this checkout, other hosts, other locales, or a consumer project.
+
+On 2026-10-20 the owner accepted one later synthetic read-only review on a Windows Codex in-app browser, Chinese ordinary Chat. The accepted commit and runtime digest are `synthetic_online_acceptance` in `capability-manifest.json`. The pre-claim menu showed GPT-6 / Pro, and the closed control showed only Pro. One `offloadTask` clicked send once. The first wait returned `HOST_TIMEOUT` while the page was still generating. `recoverTask` on the same receipt collected a 296-character reply. After the host JavaScript runtime was restarted and the original tab was bound again, `recoverTask` returned that same reply, and the ledger still had one send attempt. A 120-character `readCollected` excerpt was a truncated prefix; the full body stayed in the ledger. This documentation records the owner's handoff. It did not run that browser flow. The acceptance is one host, one locale, and one synthetic task. It does not accept other hosts, other locales, or a consumer project. A consumer project needs its own synthetic online acceptance. Windows CI remains an offline check. Browser-response delivery does not need a GitHub writer. The original Git verification path remains separate and is not an upgrade of a chat reply. There is no universal browser driver, hosted-model API client, or credential custodian. Token and subscription savings are not an achieved result.
 
 ## Distribution and rights
 
 The [PolyForm Noncommercial License 1.0.0](LICENSE) is reproduced without alteration and covers only interests the licensor actually controls. It permits certain noncommercial use, modification and redistribution subject to its conditions; it is **not** an OSI-approved open-source license. It does not grant permissions for third-party code or hosted services, and it does not mean third-party rights have been cleared. [Scope notice](docs/legal/LICENSE_SCOPE.md). The experimental *not-for-production* statement is a support recommendation, not an unannounced change to the license. This preview is not production-ready.
 
-**No formal versioned Release has been published.** Verified behavior on this independent clean-root snapshot is the Windows and Python 3.12 offline research demo. Native Windows CI on this repository's own exact commit is the engineering check for that snapshot; historical repository CI results cannot certify it. Component-level source rights, attribution, and brand permission stay separate from public source availability.
+**No formal versioned Release has been published.** Offline regressions and local online acceptance are separate evidence. Native Windows CI on this repository's own exact commit is the engineering check for that snapshot; historical repository CI results cannot certify it. Component-level source rights, attribution, and brand permission stay separate from public source availability.
 
 ## Contributing and security
 
