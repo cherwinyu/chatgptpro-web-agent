@@ -59,7 +59,7 @@ const outcome = await online.offloadTask({
   observe: online.observeNewChat,
   composer: online.CHINESE_ORDINARY_CHAT.composer,
   sendButton: online.CHINESE_ORDINARY_CHAT.sendButton,
-  budgetMs: 120000,
+  budgetMs: 45000,
 });
 ```
 
@@ -74,7 +74,7 @@ const outcome = await online.offloadTask({
 保留证据目录和 `prepare.json`。进程中断后只调用：
 
 ```javascript
-const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
+const outcome = await online.recoverTask({ tab, run, budgetMs: 45000 });
 ```
 
 - `COLLECTED` 且 `recovered: true` 是已保存的正文。账本已是 `RESULT_SEEN` 时，不再需要打开页面。
@@ -85,7 +85,25 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 
 `readCollected` 由 `adapters/generic/local_transport.mjs` 导出，与 `localTransport` 在同一模块，不是 `online_host.mjs` 的第二个导出。`offloadTask` 和 `recoverTask` 在账本达到 `COLLECTED` 或 `RESULT_SEEN` 时会调用它。直接调用时，`readCollected` 先核对完整正文的 SHA-256，再按 `maxCharacters` 返回。`truncated: true` 是字符前缀，不是摘要。账本已是 `RESULT_SEEN` 时，这次读取不要求页面仍然打开。页面完成、正文入库、主代理的内容复核和 Git `verify` 是四件不同的事。
 
-`budgetMs` 只限制浏览器地址读取、页面读取，以及这些读取之间的等待。它从账本状态读取完成之后才开始计算，因此打开本地账本的时间不会在还没查看标签页时被报成 `HOST_TIMEOUT`。每一次 `tab.url()` 和页面读取都受剩余预算、原来的 `deadline_at` 和取消信号限制。时间用尽后，助手不会再发起下一次读取，不会点击发送，也不会改写截止时间。如果宿主的浏览器调用本身不能取消，这次等待结束后该调用仍可能在后台继续。
+`budgetMs` 只限制浏览器地址读取、页面读取，以及这些读取之间的等待。它必须是 1 到 45000 的整数。`55000` 和 `120000` 会在任何浏览器调用之前以 `BOUNDED_WAIT_REQUIRED` 拒绝。调用方省略时，默认值是 45000。它从账本状态读取完成之后才开始计算，因此打开本地账本的时间不会在还没查看标签页时被报成 `HOST_TIMEOUT`。每一次 `tab.url()` 和页面读取都受剩余预算、原来的 `deadline_at` 和取消信号限制。时间用尽后，助手不会再发起下一次读取，不会点击发送，也不会改写截止时间。如果宿主的浏览器调用本身不能取消，这次等待结束后该调用仍可能在后台继续。
+
+`domReadCapMs` 是单次读取的上限。默认仍是 10000。显式传入时必须是 1 到 120000 的整数。`offloadTask` 会在宿主就绪钩子和准备回执之前检查它。发送资格记下之后，账本行写入 `host_limits`，并追加一条 `dom_read_cap_ms=<值>`。超出范围不会消耗发送资格。认领前超时可以干净失败（尚未认领时 `doNotResend` 为 false）。认领后超时，包括读回输入框太慢，仍然是 `SUBMISSION_UNKNOWN`，并且 `doNotResend: true`。
+
+`whenHostReady` 可以是函数或 Promise。`offloadTask`、`sendPrepared` 和 `recoverTask` 都会先等它，再开始计时的浏览器步骤。`waitAndCollect` 里的 `budgetMs` 从该信号完成之后才起算。钩子拒绝时错误是 `HOST_NOT_READY`，发生在新的认领之前。仅因钩子拒绝，恢复不会把已有认领改成未知，也不会发送。
+
+## 给非 CUA 宿主的浏览器动作
+
+`adapters/generic/browser_actions.mjs` 约定最小操作集：`url`、`evaluate`、`click`、`press`、`fill`、`readComposer`、`queryRole`。每次调用带 `timeoutMs`。Playwright/CUA 的 `tab` 仍然可用，`resolveBrowserActions` 会适配它。`createMockActions` 和 `createFileRelayActions` 是仓库内的参考实现。`asPlaywrightTab(actions, { id })` 就是 `offloadTask` 已经会驱动的形状。`CDP_OP_REFERENCE` 只给出对应关系，不会打开套接字。
+
+填写使用粘贴，不改 `textContent`。粘贴之后用 `innerText` 读回，把 `\r\n` 和 `\r` 规范成 `\n`，再与提示词比较。空行、缩进和围栏代码块必须一致。不一致时抛出 `COMPOSER_TEXT_MISMATCH`，并且发生在发送点击之前。已经认领时，这次失败是 `SUBMISSION_UNKNOWN`，不会重试。文件中继在比对成功之前也会拒绝发送点击，拒绝坐标点击，并拒绝未知操作。
+
+在填写 `requestedModel` 和 `requestedEffort` 之前，调用 `listVisibleSelection(tab)`。它打开模型菜单，返回当前可见选项和强度标签，然后关闭菜单。它不会改选另一项，也不会发送。这些字符串是页面上的文字。助手不硬编码模型显示名。随附的中文普通 Chat 配置集中在 `adapters/generic/page_adapter.mjs`（`chatgpt-ordinary-chat-zh`，版本 1）。其他界面语言传入自己的适配表。
+
+宿主嵌入的页面执行器遵循 `adapters/generic/executor_state.mjs`。`starting` 和 `running` 拒绝第二个执行器。`failed` 和 `stopped` 允许用新 token、新 session 接管。认领之后不要为了重新注入而去重载文档：重载会改变已绑定的 session，必须拒绝。只有 `failed` 或 `stopped` 时，才在同一文档里重新注入。
+
+## 授权标签页与 CSP
+
+只使用用户已授权给这次任务的标签页。如果宿主必须暂时绕过 CSP，才能让页面访问本机通道，那么绕过只在任务期间有效。任务结束时关闭绕过、重新加载标签页，并核验页面再次拦截对本机端口的请求。页面通道的 token 文件应收紧为仅所有者可读写，并在第一个页面 session 绑定后立即作废。本仓库不保存凭据，也不会替你打开这条通道。
 
 模型在记下发送资格之前核对。`observeNewChat` 打开模型菜单，读取唯一选中的模型和该菜单上的强度，然后关闭菜单。请求里的名称要和这些标签一致。请求值、默认值或旧任务不能代替这次菜单读取。发送资格保存的是这次菜单观察，其中包含模型名称。
 

@@ -53,12 +53,43 @@ def host_wait_guidance(record: dict) -> dict:
         "host_wait": {
             "owner": "calling_agent",
             "bounded_wait_required": True,
+            "budget_ms_min": 1,
+            "budget_ms_max": 45000,
+            "dom_read_cap_ms_default": 10000,
+            "dom_read_cap_ms_min": 1,
+            "dom_read_cap_ms_max": 120000,
             "on_wait_budget_exhausted": "return_receipt_and_resume_same_task",
             "on_task_deadline": "stop_waiting_no_resend",
             "ui_completion_is_delivery": False,
             "automatic_retry": False,
         },
     }
+
+
+def _adapter_id(value: object) -> bool:
+    if not isinstance(value, str) or not 1 <= len(value) <= 64:
+        return False
+    return all(ch.isdigit() or "a" <= ch <= "z" or ch == "-" for ch in value)
+
+
+def read_host_limits(path: str) -> dict:
+    """Bounds for one browser task. Invalid limits must not consume a send."""
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("host limits must be a JSON object")
+    allowed = {"dom_read_cap_ms", "budget_ms", "page_adapter_id"}
+    if set(raw) - allowed or "dom_read_cap_ms" not in raw:
+        raise ValueError("host limits require dom_read_cap_ms and only known fields")
+    cap = raw["dom_read_cap_ms"]
+    if type(cap) is not int or not 1 <= cap <= 120_000:
+        raise ValueError("dom_read_cap_ms must be an integer from 1 to 120000")
+    budget = raw.get("budget_ms", None)
+    if "budget_ms" in raw and (type(budget) is not int or not 1 <= budget <= 45000):
+        raise ValueError("BOUNDED_WAIT_REQUIRED: budget_ms must be an integer from 1 to 45000")
+    adapter = raw.get("page_adapter_id", None)
+    if "page_adapter_id" in raw and not _adapter_id(adapter):
+        raise ValueError("invalid page_adapter_id")
+    return raw
 
 
 def repo_root() -> Path:
@@ -561,6 +592,13 @@ def cmd_collect_browser(args: argparse.Namespace) -> int:
 
 def cmd_claim(args: argparse.Namespace) -> int:
     ledger = open_ledger(Path(args.ledger))
+    limits = None
+    if getattr(args, "host_limits", None):
+        try:
+            limits = read_host_limits(args.host_limits)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return emit({"task_id": args.task, "claimed": False, "do_not_resend": True,
+                         "error": str(exc), "ledger_mutated": False, "replacement_prepared": False}, 3)
     record = ledger.get(args.task)
     if bridge_v2.identity_error(args.task, record):
         return emit({"task_id": args.task, "state": record["state"], "claimed": False, "do_not_resend": True, "reason": "task identity does not match", "review_approved": False, "current_verification": False}, 3)
@@ -593,18 +631,24 @@ def cmd_claim(args: argparse.Namespace) -> int:
                      "error": "task has no bound browser target; observation cannot upgrade a legacy task"}, 3, ledger)
     claimed = ledger.claim_send(args.task)
     current = ledger.get(args.task)
-    return emit(
-        {
-            "task_id": args.task,
-            "claimed": claimed,
-            "state": current["state"],
-            "send_attempts": current["send_attempts"],
-            "do_not_resend": not claimed,
-            "browser_target_check": target_check if target_check is not None else "NOT_CONFIGURED",
-            "selection_check": selection_check if selection_check is not None else "NOT_CONFIGURED",
-        },
-        0 if claimed else 2,
-    )
+    if claimed and limits is not None:
+        current = ledger.update(
+            args.task,
+            host_limits=limits,
+            notes=[f"dom_read_cap_ms={limits['dom_read_cap_ms']}"],
+        )
+    body = {
+        "task_id": args.task,
+        "claimed": claimed,
+        "state": current["state"],
+        "send_attempts": current["send_attempts"],
+        "do_not_resend": not claimed,
+        "browser_target_check": target_check if target_check is not None else "NOT_CONFIGURED",
+        "selection_check": selection_check if selection_check is not None else "NOT_CONFIGURED",
+    }
+    if limits is not None and claimed:
+        body["host_limits"] = limits
+    return emit(body, 0 if claimed else 2)
 
 
 def cmd_mark_submitted(args: argparse.Namespace) -> int:
@@ -1370,7 +1414,11 @@ def cmd_demo(args: argparse.Namespace) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
-    main = argparse.ArgumentParser(prog="pro-bridge", allow_abbrev=False)
+    main = argparse.ArgumentParser(
+        prog="pro-bridge", allow_abbrev=False,
+        description="Orchestration budgetMs is an integer from 1 to 45000. "
+                    "domReadCapMs is an integer from 1 to 120000 and defaults to 10000.",
+    )
     sub = main.add_subparsers(dest="command", required=True)
     collect = sub.add_parser("collect-browser", allow_abbrev=False)
     collect.add_argument("--ledger", required=True)
@@ -1446,6 +1494,10 @@ def parser() -> argparse.ArgumentParser:
         item.set_defaults(func=func)
     sub.choices["mark-submitted"].add_argument("--session-url", default="")
     sub.choices["claim"].add_argument("--browser-observation", help="fresh host observation matching the immutable browser target")
+    sub.choices["claim"].add_argument(
+        "--host-limits",
+        help="UTF-8 JSON with dom_read_cap_ms (integer 1-120000), optional budget_ms (integer 1-45000), optional page_adapter_id",
+    )
     sub.choices["mark-submitted"].add_argument("--evidence", default="")
     sub.choices["mark-unknown"].add_argument("--reason", default="")
     sub.choices["block"].add_argument("--reason", required=True)

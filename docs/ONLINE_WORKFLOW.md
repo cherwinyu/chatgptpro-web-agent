@@ -42,9 +42,12 @@ into that Git approval.
 ## Required host and initial page
 
 Windows, Python 3.12, Node.js 22+, and a host JavaScript browser runtime exposing
-the documented CUA tab API. A terminal by itself has no `cua` object. This is a
+the documented CUA tab API, or the browser-action adapter in
+`adapters/generic/browser_actions.mjs` (`createMockActions`, `createFileRelayActions`,
+or `asPlaywrightTab`). A terminal by itself has no `cua` object. This is a
 host adapter, not an independently installed browser driver or registered native
 subagent. Importing the modules performs no browser or network actions.
+`budgetMs` is an integer from 1 to 45000. `domReadCapMs` defaults to 10000.
 
 Use the client's built-in browser first. This run succeeded in the Codex in-app
 browser. The host must open a logged-in **ordinary Chat** home, outside a project,
@@ -83,7 +86,7 @@ const outcome = await online.offloadTask({
   requestedModel, requestedEffort, observe: online.observeNewChat,
   composer: online.CHINESE_ORDINARY_CHAT.composer,
   sendButton: online.CHINESE_ORDINARY_CHAT.sendButton,
-  budgetMs: 120000,
+  budgetMs: 45000,
 });
 if (outcome.status === 'COLLECTED') {
   // Inspect outcome.text. If outcome.truncated, choose a larger maxCharacters
@@ -313,7 +316,7 @@ and the response are kept outside this public source tree.
 ## Offline checks
 
 ```powershell
-node --test tests/audit/browser_host.test.mjs tests/audit/online_host.test.mjs
+node --test tests/audit/browser_host.test.mjs tests/audit/online_host.test.mjs tests/audit/browser_actions.test.mjs
 py -3.12 -B -m unittest discover -s tests/audit -v
 py -3.12 -B tests/pro_bridge/test_faults.py
 py -3.12 -B tests/pro_bridge/test_security.py

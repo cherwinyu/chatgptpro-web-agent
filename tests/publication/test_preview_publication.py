@@ -74,6 +74,8 @@ class PublicPreviewTests(unittest.TestCase):
     def test_line_endings_are_pinned_without_approving_release(self):
         attributes=(self.root/'.gitattributes').read_text(encoding='utf-8')
         self.assertIn('* text=auto eol=lf', attributes)
+        self.assertIn('*.lock.json -text', attributes)
+        self.assertIn('LICENSE -text', attributes)
         report=publication_audit.check(self.root)
         self.assertEqual(report['status'],'RULE_CHECKS_PASSED', report)
         self.assertFalse(report['release_approved'])

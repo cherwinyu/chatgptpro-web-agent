@@ -59,10 +59,15 @@ export function localTransport({ root, ledger, evidenceDirectory, receiptPath, p
   const run = async (command, args = [], files = {}) => {
     const extra = [];
     for (const [kind, value] of Object.entries(files)) {
-      if (!['observation', 'result'].includes(kind)) throw Error('INVALID_FILE_KIND');
-      const path = join(resolve(evidenceDirectory), `${kind}.json`);
+      const spec = {
+        observation: ['observation.json', '--browser-observation'],
+        result: ['result.json', '--result'],
+        hostLimits: ['host-limits.json', '--host-limits'],
+      }[kind];
+      if (!spec) throw Error('INVALID_FILE_KIND');
+      const path = join(resolve(evidenceDirectory), spec[0]);
       writeFileSync(path, JSON.stringify(value), 'utf8');
-      extra.push(kind === 'observation' ? '--browser-observation' : '--result', path);
+      extra.push(spec[1], path);
     }
     const process = spawnSync(python, [...pythonArgs, '-B', join(resolve(root), 'adapters/generic/run_bridge.py'),
       command, '--ledger', resolve(ledger), ...args, ...extra], { encoding: 'utf8', timeout: 30000,

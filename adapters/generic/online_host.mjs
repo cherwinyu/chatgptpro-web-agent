@@ -7,18 +7,20 @@
  */
 import { BrowserSession, HostError, boundOperation, conversationUrl } from './browser_host.mjs';
 import { loadPrepared, prepareOnline, readCollected } from './local_transport.mjs';
+import { CHATGPT_ORDINARY_CHAT_ZH } from './page_adapter.mjs';
+import {
+  DOM_READ_CAP_DEFAULT_MS, assertBrowserBudget, awaitHostReady, fillAndVerify, resolveBrowserActions,
+  validateDomReadCap, BROWSER_BUDGET_MAX_MS,
+} from './browser_actions.mjs';
 
-/** Selectors for the Chinese ordinary-Chat profile shipped with observeNewChat.
- * Pass them explicitly. Other locales must supply their own controls.
+/** Chinese ordinary-Chat profile. Labels and selectors live in the versioned
+ * page adapter. Other locales pass their own adapter. Model names are not fixed.
  */
-export const CHINESE_ORDINARY_CHAT = Object.freeze({
-  composer: '[role="textbox"][contenteditable="true"]',
-  sendButton: 'button[aria-label="发送"]',
-});
+export const CHINESE_ORDINARY_CHAT = CHATGPT_ORDINARY_CHAT_ZH;
 
 const TARGET_FIELDS = ['mode', 'project_id', 'conversation_id', 'browser_context', 'tab_id', 'model_label', 'effort_label'];
 
-const DOM_READ_CAP_MS = 10000;
+export { DOM_READ_CAP_DEFAULT_MS };
 
 /** Menu evidence is reusable only for the task, browser and tab it was bound to,
  * and only for this long. This matches the ledger observation age. It is not a
@@ -69,10 +71,11 @@ export function selectionLinesFromTexts(instruction, leafTexts, innerText) {
 }
 
 /** Read the standalone new-chat page without choosing a model or opening a menu.
- * Passed to tab.playwright.evaluate. The page realm does not have this module,
- * so every helper used here is declared inside this function.
+ * Passed to tab.playwright.evaluate with the page-adapter profile as its only
+ * argument. The page realm does not have this module, so every helper used here
+ * is declared inside this function. UI strings come from that argument.
  */
-export function readStandaloneChat() {
+export function readStandaloneChat(profile) {
   function linesFromControl(instruction, leafTexts, innerText) {
     const lines = [];
     const push = text => {
@@ -84,23 +87,30 @@ export function readStandaloneChat() {
     if (!lines.length) for (const text of String(innerText ?? '').split(/\n+/)) push(text);
     return lines;
   }
+  const labels = profile && profile.labels;
+  const selectors = profile && profile.selectors;
+  const empty = { url: location.href, chat: false, work: false, ready: false, login: false, selection_lines: [] };
+  if (!labels || !selectors || profile.version !== 1 || !labels.chat || !labels.work || !labels.modelPicker || !selectors.composer) {
+    return { ...empty, reason: 'PAGE_ADAPTER_REQUIRED' };
+  }
   const visible = element => !!element && !element.closest('[hidden],[aria-hidden="true"]') && element.getClientRects().length > 0;
   const buttons = [...document.querySelectorAll('button')];
-  const chat = buttons.filter(e => e.textContent.trim() === '聊天');
-  const work = buttons.filter(e => e.textContent.trim() === '工作');
-  const editor = document.querySelector('[role="textbox"][contenteditable="true"]');
-  const instruction = '选择 ChatGPT 模型';
+  const chat = buttons.filter(e => e.textContent.trim() === labels.chat);
+  const work = buttons.filter(e => e.textContent.trim() === labels.work);
+  const editor = document.querySelector(selectors.composer);
+  const instruction = labels.modelPicker;
   const picker = buttons.filter(e => (e.getAttribute('aria-label') || '').trim() === instruction && visible(e));
   let selection_lines = [];
   if (picker.length === 1) {
     const leaves = [...picker[0].querySelectorAll('*')].filter(element => element.childElementCount === 0 && visible(element));
     selection_lines = linesFromControl(instruction, leaves.map(element => element.textContent), picker[0].innerText);
   }
+  const loginLabels = Array.isArray(labels.login) ? labels.login : [];
   return { url: location.href,
     chat: chat.length === 1 && chat[0].getAttribute('aria-pressed') === 'true',
     work: work.length === 1 && work[0].getAttribute('aria-pressed') === 'false',
     ready: !!editor && !editor.textContent.trim(),
-    login: buttons.some(e => /^(登录|Log in|Sign in)$/.test(e.textContent.trim())),
+    login: buttons.some(e => loginLabels.includes(e.textContent.trim())),
     selection_lines };
 }
 
@@ -118,11 +128,15 @@ function pageReady(page) {
  * control also shows it. A closed control that shows only the effort does not
  * confirm the model by itself.
  */
-export async function observeNewChat(tab, browserId) {
-  const picker = tab.playwright.getByRole('button', { name: '选择 ChatGPT 模型', exact: true });
+export async function observeNewChat(tab, browserId, limits = {}) {
+  const profile = limits.pageAdapter ?? CHINESE_ORDINARY_CHAT;
+  const labels = profile.labels;
+  const roles = profile.roles;
+  if (!labels || !roles) throw Error('PAGE_ADAPTER_REQUIRED');
+  const picker = tab.playwright.getByRole(roles.button, { name: labels.modelPicker, exact: true });
   await picker.click();
-  await tab.playwright.getByRole('menuitem', { name: '选择模型', exact: true }).click();
-  const models = await tab.playwright.getByRole('menuitemradio').all();
+  await tab.playwright.getByRole(roles.menuItem, { name: labels.modelMenu, exact: true }).click();
+  const models = await tab.playwright.getByRole(roles.modelOption).all();
   let selected = null;
   for (const item of models) {
     if (await item.getAttribute('aria-checked') === 'true') {
@@ -132,9 +146,9 @@ export async function observeNewChat(tab, browserId) {
   }
   if (!selected?.text) throw Error('MODEL_NOT_SELECTED');
   await selected.item.click();
-  const effortLabel = (await tab.playwright.getByRole('menuitem', { name: '选择模型', exact: true }).innerText()).trim();
-  await tab.playwright.getByRole('menuitem', { name: '强度', exact: true }).press('Escape');
-  const page = await tab.playwright.evaluate(readStandaloneChat);
+  const effortLabel = (await tab.playwright.getByRole(roles.menuItem, { name: labels.modelMenu, exact: true }).innerText()).trim();
+  await tab.playwright.getByRole(roles.menuItem, { name: labels.effortMenu, exact: true }).press('Escape');
+  const page = await tab.playwright.evaluate(readStandaloneChat, profile);
   if (!pageReady(page)) throw Error('STANDALONE_NEW_CHAT_NOT_READY');
   const lines = page.selection_lines;
   const model = selected.text;
@@ -168,9 +182,11 @@ export async function readOnlyNewChat(tab, browserId, expected, limits = {}) {
   if (!expected || expected.tab_id !== tab.id || expected.browser_context !== browserId) throw Error('BOUND_TAB_MISMATCH');
   const taskId = limits.taskId !== undefined ? limits.taskId : expected.task_id;
   const evidence = bindMenuEvidence(expected, { browserId, tabId: tab.id, taskId, requireTask: true });
-  const read = await browserRead(() => tab.playwright.evaluate(readStandaloneChat), {
-    budgetMs: limits.budgetMs ?? DOM_READ_CAP_MS, deadlineAt: limits.deadlineAt ?? Number.POSITIVE_INFINITY,
-    signal: limits.signal, capMs: DOM_READ_CAP_MS,
+  const profile = limits.pageAdapter ?? CHINESE_ORDINARY_CHAT;
+  const cap = validateDomReadCap(limits.domReadCapMs ?? DOM_READ_CAP_DEFAULT_MS);
+  const read = await browserRead(() => tab.playwright.evaluate(readStandaloneChat, profile), {
+    budgetMs: limits.budgetMs ?? cap, deadlineAt: limits.deadlineAt ?? Number.POSITIVE_INFINITY,
+    signal: limits.signal, capMs: cap,
   });
   if (!read.ok) throw new HostError(read.status);
   const page = read.value;
@@ -195,7 +211,37 @@ export async function readOnlyNewChat(tab, browserId, expected, limits = {}) {
   throw Error('SELECTION_NOT_OBSERVABLE');
 }
 
-export async function sendOnce({ tab, prepared, run, observe, recheck, composer, sendButton }) {
+/** Read-only list of the labels currently visible in the model menu.
+ * Opens the menu and closes it. Does not activate a model option and does not
+ * send. Callers copy the returned strings into requestedModel and requestedEffort.
+ */
+export async function listVisibleSelection(tab, profile = CHINESE_ORDINARY_CHAT) {
+  const labels = profile?.labels;
+  const roles = profile?.roles;
+  if (!labels || !roles) throw Error('PAGE_ADAPTER_REQUIRED');
+  await tab.playwright.getByRole(roles.button, { name: labels.modelPicker, exact: true }).click();
+  const models = [];
+  for (const item of await tab.playwright.getByRole(roles.modelOption).all()) {
+    models.push({
+      label: (await item.innerText()).trim(),
+      checked: await item.getAttribute('aria-checked') === 'true',
+    });
+  }
+  const effortLabel = (await tab.playwright.getByRole(roles.menuItem, { name: labels.modelMenu, exact: true }).innerText()).trim();
+  await tab.playwright.getByRole(roles.menuItem, { name: labels.effortMenu, exact: true }).press('Escape');
+  const page = await tab.playwright.evaluate(readStandaloneChat, profile);
+  return {
+    adapter_id: profile.id, adapter_version: profile.version,
+    model_options: models, effort_label: effortLabel,
+    closed_control_lines: page.selection_lines ?? [],
+    send_authorized: false,
+  };
+}
+
+export async function sendOnce({ tab, prepared, run, observe, recheck, composer, sendButton,
+  domReadCapMs, budgetMs, pageAdapter } = {}) {
+  const cap = validateDomReadCap(domReadCapMs ?? DOM_READ_CAP_DEFAULT_MS);
+  const profile = pageAdapter ?? CHINESE_ORDINARY_CHAT;
   const id = prepared.task_id;
   if (!id || !prepared.prompt || prepared.browser_target?.tab_id !== tab.id) throw Error('INVALID_PREPARE');
   if (!run.receiptPath) throw Error('ORIGINAL_RECEIPT_REQUIRED');
@@ -212,7 +258,9 @@ export async function sendOnce({ tab, prepared, run, observe, recheck, composer,
   const claimObservation = observation && Object.hasOwn(observation, 'model_evidence_source')
     ? bindMenuEvidence(observation, { browserId: prepared.browser_target.browser_context, tabId: tab.id, taskId: id, requireTask: true })
     : observation;
-  const claim = await run('claim', ['--task', id], { observation: claimObservation });
+  const hostLimits = { dom_read_cap_ms: cap, page_adapter_id: profile.id };
+  if (budgetMs !== undefined) hostLimits.budget_ms = assertBrowserBudget(budgetMs);
+  const claim = await run('claim', ['--task', id], { observation: claimObservation, hostLimits });
   if (claim.code !== 0 || claim.value.claimed !== true) throw Error('SEND_NOT_CLAIMED');
   // From this point every failure is uncertain. No retry, replacement or re-claim.
   try {
@@ -232,9 +280,14 @@ export async function sendOnce({ tab, prepared, run, observe, recheck, composer,
     if (carriedModel) {
       if (fresh.effort_unambiguous !== true || fresh.effort_evidence_source !== 'closed_control') throw Error('PAGE_NOT_READY');
     } else if (!fresh.selection_unambiguous) throw Error('PAGE_NOT_READY');
-    await tab.playwright.locator(composer).fill(prepared.prompt);
-    const button = typeof sendButton === 'function' ? await sendButton(tab) : tab.playwright.locator(sendButton);
-    await button.click();
+    const actions = resolveBrowserActions(tab);
+    await fillAndVerify(actions, composer, prepared.prompt, { timeoutMs: cap });
+    if (typeof sendButton === 'function') {
+      const button = await sendButton(tab);
+      await boundOperation(() => button.click(), cap);
+    } else {
+      await boundOperation(() => actions.click({ selector: sendButton, send: true }), cap);
+    }
     return { task_id: id, status: 'SEND_CLICKED', doNotResend: true };
   } catch (error) {
     await run('mark-unknown', ['--task', id, '--reason', 'online host failed after durable claim']);
@@ -328,8 +381,10 @@ async function currentConversation(tab, limits) {
  * Original receipt, tab and deadline remain mandatory. The session URL is recorded
  * only after the reply is stable on one conversation URL.
  */
-export async function waitAndCollect({ tab, prepared, run, budgetMs = 55000, intervalMs = 30000,
-  urlQuietMs = 2000, quietMs = 2000, signal } = {}) {
+export async function waitAndCollect({ tab, prepared, run, budgetMs = BROWSER_BUDGET_MAX_MS, intervalMs = 30000,
+  urlQuietMs = 2000, quietMs = 2000, domReadCapMs, signal } = {}) {
+  const budget = assertBrowserBudget(budgetMs);
+  const domCap = validateDomReadCap(domReadCapMs ?? DOM_READ_CAP_DEFAULT_MS);
   const target = prepared.browser_target;
   if (!run.receiptPath) throw Error('ORIGINAL_RECEIPT_REQUIRED');
   const status = await run('status', ['--receipt', run.receiptPath]);
@@ -347,7 +402,7 @@ export async function waitAndCollect({ tab, prepared, run, budgetMs = 55000, int
   // budgetMs bounds browser reads and the pauses between them. The ledger
   // status read above uses the transport timeout and does not consume it.
   const browserStarted = performance.now();
-  const remaining = () => budgetMs - (performance.now() - browserStarted);
+  const remaining = () => budget - (performance.now() - browserStarted);
   if (record.state === 'SUBMITTED' && !record.session_url) return { status: 'SUBMITTED_SESSION_MISMATCH', doNotResend: true };
   let locked = record.state === 'SUBMITTED' ? record.session_url : null;
 
@@ -385,7 +440,7 @@ export async function waitAndCollect({ tab, prepared, run, budgetMs = 55000, int
     try {
       const finalRead = await browserRead(
         () => session.observe({ ...request, includeText: true }),
-        { budgetMs: remaining(), deadlineAt, signal, capMs: DOM_READ_CAP_MS },
+        { budgetMs: remaining(), deadlineAt, signal, capMs: domCap },
       );
       if (!finalRead.ok) return stopped(finalRead.status);
       final = finalRead.value;
@@ -422,14 +477,16 @@ function sameTarget(observed, expected) {
   return expected && TARGET_FIELDS.every(key => observed?.[key] === expected[key]);
 }
 
-function recheckLimits(prepared, signal) {
+function recheckLimits(prepared, signal, domReadCapMs) {
   const deadlineAt = Number(prepared?.deadline_at) * 1000;
-  return { ...(Number.isFinite(deadlineAt) ? { deadlineAt } : {}), signal };
+  return { ...(Number.isFinite(deadlineAt) ? { deadlineAt } : {}), signal, domReadCapMs };
 }
 
 /** Send the original prepared task once. Refuses when a claim already exists. */
 export async function sendPrepared({ tab, browserId, run, observe = observeNewChat,
-  composer, sendButton } = {}) {
+  composer, sendButton, domReadCapMs, whenHostReady, signal, pageAdapter } = {}) {
+  const cap = validateDomReadCap(domReadCapMs ?? DOM_READ_CAP_DEFAULT_MS);
+  await awaitHostReady(whenHostReady, signal);
   const prepared = loadPrepared(run.receiptPath);
   const status = await run('status', ['--receipt', run.receiptPath]);
   if (status.code !== 0 || status.value.task_id !== prepared.task_id) throw Error('RECEIPT_RECOVERY_FAILED');
@@ -444,8 +501,8 @@ export async function sendPrepared({ tab, browserId, run, observe = observeNewCh
     });
     if (!sameTarget(bound, prepared.browser_target)) throw Error('REQUESTED_SELECTION_NOT_VISIBLE');
     return await sendOnce({ tab, prepared, run, observe: async () => bound,
-      recheck: () => readOnlyNewChat(tab, browserId, bound, { ...recheckLimits(prepared), taskId: prepared.task_id }),
-      composer, sendButton });
+      recheck: () => readOnlyNewChat(tab, browserId, bound, { ...recheckLimits(prepared, signal, cap), taskId: prepared.task_id, pageAdapter }),
+      composer, sendButton, domReadCapMs: cap, pageAdapter });
   } catch (error) {
     const after = await run('status', ['--receipt', run.receiptPath]);
     const attempts = after.value?.send_attempts ?? 1;
@@ -465,9 +522,13 @@ async function finishCollected(run, maxCharacters, extra = {}) {
  */
 export async function offloadTask({ tab, browserId, run, evidenceDirectory, repository, sourceSha, sourceRef,
   taskFile, orchestration, requestedModel, requestedEffort, deadlineSeconds, budgetMs, intervalMs, urlQuietMs,
-  quietMs, maxCharacters, composer, sendButton, observe = observeNewChat, signal } = {}) {
+  quietMs, maxCharacters, composer, sendButton, observe = observeNewChat, signal, domReadCapMs,
+  whenHostReady, pageAdapter } = {}) {
   if (!requestedModel || !requestedEffort) throw Error('MODEL_AND_EFFORT_REQUIRED');
   if (!composer || (typeof sendButton !== 'string' && typeof sendButton !== 'function')) throw Error('SEND_CONTROLS_REQUIRED');
+  const cap = validateDomReadCap(domReadCapMs ?? DOM_READ_CAP_DEFAULT_MS);
+  const budget = budgetMs === undefined ? BROWSER_BUDGET_MAX_MS : assertBrowserBudget(budgetMs);
+  await awaitHostReady(whenHostReady, signal);
   const observation = await observe(tab, browserId);
   const preflight = bindMenuEvidence(observation, {
     browserId, tabId: tab?.id, taskId: observation.task_id ?? null, requireTask: false,
@@ -483,22 +544,27 @@ export async function offloadTask({ tab, browserId, run, evidenceDirectory, repo
       browserId, tabId: tab.id, taskId: prepared.task_id, requireTask: false,
     });
     sent = await sendOnce({ tab, prepared, run, observe: async () => bound,
-      recheck: () => readOnlyNewChat(tab, browserId, bound, { ...recheckLimits(prepared, signal), taskId: prepared.task_id }),
-      composer, sendButton });
+      recheck: () => readOnlyNewChat(tab, browserId, bound, { ...recheckLimits(prepared, signal, cap), taskId: prepared.task_id, pageAdapter }),
+      composer, sendButton, domReadCapMs: cap, budgetMs: budget, pageAdapter });
   } catch (error) {
     const after = await run('status', ['--receipt', run.receiptPath]);
     const attempts = after.value?.send_attempts ?? 0;
     return { status: attempts > 0 ? 'SUBMISSION_UNKNOWN' : 'NOT_SENT', doNotResend: attempts > 0,
       task_id: prepared.task_id, receipt_path: run.receiptPath, error: error.message };
   }
-  const outcome = await waitAndCollect({ tab, prepared, run, budgetMs, intervalMs, urlQuietMs, quietMs, signal });
+  const outcome = await waitAndCollect({ tab, prepared, run, budgetMs: budget, intervalMs, urlQuietMs, quietMs,
+    domReadCapMs: cap, signal });
   if (outcome.status === 'COLLECTED' || outcome.status === 'ALREADY_COLLECTED') return finishCollected(run, maxCharacters);
   return { ...outcome, status: outcome.status, doNotResend: true, task_id: prepared.task_id,
     receipt_path: run.receiptPath, send_status: sent.status };
 }
 
 /** Continue the original receipt. Never prepares, claims, or clicks send. */
-export async function recoverTask({ tab, run, budgetMs, intervalMs, urlQuietMs, quietMs, maxCharacters, signal } = {}) {
+export async function recoverTask({ tab, run, budgetMs, intervalMs, urlQuietMs, quietMs, maxCharacters, signal,
+  domReadCapMs, whenHostReady } = {}) {
+  const cap = validateDomReadCap(domReadCapMs ?? DOM_READ_CAP_DEFAULT_MS);
+  const budget = budgetMs === undefined ? BROWSER_BUDGET_MAX_MS : assertBrowserBudget(budgetMs);
+  await awaitHostReady(whenHostReady, signal);
   const prepared = loadPrepared(run.receiptPath);
   const status = await run('status', ['--receipt', run.receiptPath]);
   if (status.code !== 0 || status.value.task_id !== prepared.task_id) throw Error('RECEIPT_RECOVERY_FAILED');
@@ -512,7 +578,8 @@ export async function recoverTask({ tab, run, budgetMs, intervalMs, urlQuietMs, 
   if (!tab || tab.id !== prepared.browser_target?.tab_id) {
     return { status: 'BOUND_TAB_MISMATCH', doNotResend: true, task_id: prepared.task_id, receipt_path: run.receiptPath };
   }
-  const outcome = await waitAndCollect({ tab, prepared, run, budgetMs, intervalMs, urlQuietMs, quietMs, signal });
+  const outcome = await waitAndCollect({ tab, prepared, run, budgetMs: budget, intervalMs, urlQuietMs, quietMs,
+    domReadCapMs: cap, signal });
   if (outcome.status === 'COLLECTED' || outcome.status === 'ALREADY_COLLECTED') {
     return finishCollected(run, maxCharacters, { recovered: true });
   }
