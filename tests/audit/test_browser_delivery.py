@@ -133,6 +133,46 @@ class BrowserDeliveryTests(unittest.TestCase):
         self.assertEqual(len(tasks), 2)
         self.assertEqual(tasks[self.task_id]['state'], 'PREPARED')
 
+    def test_host_limits_are_recorded_and_invalid_limits_do_not_claim(self):
+        bad = self.save('bad-limits.json', {'dom_read_cap_ms': 10_000_000, 'budget_ms': 55000})
+        before = self.ledger.read_bytes()
+        code, body = self.call('claim', '--task', self.task_id, '--browser-observation',
+            self.save('obs-bad.json', self.target | dict(observed_at=time.time(), logged_in=True,
+                composer_ready=True, selection_unambiguous=True, mode_evidence='synthetic',
+                project_evidence='synthetic', conversation_evidence='synthetic',
+                page_url='https://chatgpt.com/')), '--host-limits', bad)
+        self.assertNotEqual(code, 0)
+        self.assertIn('dom_read_cap_ms', body['error'])
+        self.assertFalse(body['claimed'])
+        self.assertTrue(body['do_not_resend'])
+        self.assertFalse(body['ledger_mutated'])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        over = self.save('over-budget.json', {'dom_read_cap_ms': 10000, 'budget_ms': 55000})
+        code, body = self.call('claim', '--task', self.task_id, '--host-limits', over,
+            '--browser-observation', self.save('obs-over.json', self.target | dict(
+                observed_at=time.time(), logged_in=True, composer_ready=True, selection_unambiguous=True,
+                mode_evidence='synthetic', project_evidence='synthetic', conversation_evidence='synthetic',
+                page_url='https://chatgpt.com/')))
+        self.assertNotEqual(code, 0)
+        self.assertIn('BOUNDED_WAIT_REQUIRED', body['error'])
+        self.assertIn('1', body['error'])
+        self.assertIn('45000', body['error'])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        good = self.save('limits.json', {'dom_read_cap_ms': 20000, 'budget_ms': 45000,
+                                          'page_adapter_id': 'chatgpt-ordinary-chat-zh'})
+        code, claimed = self.call('claim', '--task', self.task_id, '--host-limits', good,
+            '--browser-observation', self.save('obs-good.json', self.target | dict(
+                observed_at=time.time(), logged_in=True, composer_ready=True, selection_unambiguous=True,
+                mode_evidence='synthetic', project_evidence='synthetic', conversation_evidence='synthetic',
+                page_url='https://chatgpt.com/')))
+        self.assertEqual(code, 0, claimed)
+        record = json.loads(self.ledger.read_text(encoding='utf-8'))['tasks'][self.task_id]
+        self.assertEqual(record['state'], 'SUBMISSION_UNKNOWN')
+        self.assertEqual(record['send_attempts'], 1)
+        self.assertEqual(record['host_limits']['dom_read_cap_ms'], 20000)
+        self.assertEqual(record['host_limits']['budget_ms'], 45000)
+        self.assertIn('dom_read_cap_ms=20000', record['notes'])
+
     def test_browser_delivery_cannot_be_git_approved(self):
         self.submit()
         self.assertNotEqual(self.call('verify', '--task', self.task_id, '--remote',

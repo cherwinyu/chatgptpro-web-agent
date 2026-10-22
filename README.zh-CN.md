@@ -43,7 +43,7 @@ py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/m
 
 要求 Windows、Python 3.12、Git 2.32+。权限预览始终不授予发送资格。这两条命令在精简运行时 ZIP 里。`scripts\publication_audit.py` 和 `tests\` 只在源码包里。离线演示保持 `network_attempted` 为 false、`web_send_count` 为 0，也不表示在线 ChatGPT 发送已在每台宿主上验证通过。
 
-实际分担任务写在当前 main 里，不在预发布 `v0.1.0-rc.3` 中。宿主还需要 Node.js 22+、宿主提供的 CUA 浏览器 API，以及已登录的普通 Chat 页面。在宿主的 JavaScript 浏览器运行环境中调用一次 `offloadTask`。页面仍在生成时，对同一张回执再调用 `recoverTask` 继续等待；它不会再次点击发送。调用约定见[接入说明](docs/INTEGRATION.zh-CN.md)，选择器、失败行为和浏览器记录见[在线使用](docs/ONLINE_WORKFLOW.md)。单独运行终端不能驱动浏览器；在提示词里写本地源码路径也不会上传文件内容。
+实际分担任务写在当前 main 里，不在预发布 `v0.1.0-rc.3` 中。宿主还需要 Node.js 22+、宿主提供的 CUA 浏览器 API，以及已登录的普通 Chat 页面。没有 Playwright 形状 `tab` 的宿主可以改用 `adapters/generic/browser_actions.mjs` 里的浏览器动作适配器。在宿主的 JavaScript 运行环境中调用一次 `offloadTask`。页面仍在生成时，对同一张回执再调用 `recoverTask` 继续等待；它不会再次点击发送。`budgetMs` 是 1 到 45000 的整数。`domReadCapMs` 默认 10000，允许 1 到 120000；认领之后的超时仍然失败关闭。调用约定见[接入说明](docs/INTEGRATION.zh-CN.md)，选择器、失败行为和浏览器记录见[在线使用](docs/ONLINE_WORKFLOW.md)。单独运行终端不能驱动浏览器；在提示词里写本地源码路径也不会上传文件内容。
 
 ## 功能与使用限制
 

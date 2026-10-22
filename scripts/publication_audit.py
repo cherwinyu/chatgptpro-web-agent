@@ -14,6 +14,8 @@ import stat
 BLOCKED_PREFIXES = (".cursor/", "context/", "reports/", "docs/public-readiness/", ".pro_bridge/", ".productization-transport/")
 BLOCKED_BASENAMES = {"AGENTS.md", "release-manifest.json"}
 PRIVATE_TERMS = re.compile(r"\bG0[2-6](?:\.\d+)?\b|\bProject(?:Shoe)\b", re.I)
+# Owner-requested integrator note. That name stays fail-closed in every other file.
+INTEGRATOR_NOTE_PATHS = frozenset({"docs/PROJECTSHOE_CURSOR_INTEGRATION.zh-CN.md"})
 PRIVATE_PERSONAL_MAILBOX = re.compile(r"\b[A-Za-z0-9_.+%-]+@(?:gmail|outlook|hotmail|icloud|163|qq|protonmail)\.[a-z]{2,}\b", re.I)
 COMMON_SECRETS = (
     re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,255}|github_pat_[A-Za-z0-9_]{40,255})\b"),
@@ -71,7 +73,8 @@ def check(root: Path) -> dict:
                 fail("non_utf8_file");continue
             if "\0" in text:
                 fail("binary_file");continue
-            if PRIVATE_TERMS.search(text): fail("private_internal_reference")
+            if name not in INTEGRATOR_NOTE_PATHS and PRIVATE_TERMS.search(text):
+                fail("private_internal_reference")
             if PRIVATE_PERSONAL_MAILBOX.search(text): fail("personal_mailbox")
             if re.search(r"(?i)(?:[A-Z]:[/\\]Users[/\\]|/(?:Users|home)/)[^\s\"'<>]+", text):
                 fail("user_home_path")

@@ -59,7 +59,7 @@ const outcome = await online.offloadTask({
   observe: online.observeNewChat,
   composer: online.CHINESE_ORDINARY_CHAT.composer,
   sendButton: online.CHINESE_ORDINARY_CHAT.sendButton,
-  budgetMs: 120000,
+  budgetMs: 45000,
 });
 ```
 
@@ -74,7 +74,7 @@ On `outcome.status === 'COLLECTED'`, review `outcome.text`. `outcome.truncated` 
 Keep the evidence directory and `prepare.json`. After a crash, call only:
 
 ```javascript
-const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
+const outcome = await online.recoverTask({ tab, run, budgetMs: 45000 });
 ```
 
 - `COLLECTED` with `recovered: true` is the saved reply. The page is not required when the ledger already has `RESULT_SEEN`.
@@ -85,7 +85,25 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 
 `readCollected` is exported by `adapters/generic/local_transport.mjs`, the same module as `localTransport`. It is not a second export of `online_host.mjs`. `offloadTask` and `recoverTask` call it when the ledger reaches `COLLECTED` or `RESULT_SEEN`. Called directly, `readCollected` checks the SHA-256 of the full stored body and then returns at most `maxCharacters`. `truncated: true` is a character prefix, not a summary. When the ledger is `RESULT_SEEN`, that read does not need the page to stay open. Page completion, the stored body, the primary agent's content review, and Git `verify` are different conclusions.
 
-`budgetMs` bounds browser URL reads, page reads, and the pauses between them. It starts after the ledger status read, so time spent opening the local ledger is not reported as `HOST_TIMEOUT` before the tab is checked. Each `tab.url()` and page read is limited by the time still left in that budget, the original `deadline_at`, and cancellation. When that time is gone, the helper does not start another read, does not click send, and does not change the deadline. If the host browser call cannot be cancelled, the call may continue in the background after this wait has already stopped.
+`budgetMs` bounds browser URL reads, page reads, and the pauses between them. It is an integer from 1 to 45000. `55000` and `120000` are refused with `BOUNDED_WAIT_REQUIRED` before any browser call. The default, when the caller omits it, is 45000. It starts after the ledger status read, so time spent opening the local ledger is not reported as `HOST_TIMEOUT` before the tab is checked. Each `tab.url()` and page read is limited by the time still left in that budget, the original `deadline_at`, and cancellation. When that time is gone, the helper does not start another read, does not click send, and does not change the deadline. If the host browser call cannot be cancelled, the call may continue in the background after this wait has already stopped.
+
+`domReadCapMs` is the per-read ceiling. The default is 10000 and is unchanged. An explicit value is an integer from 1 to 120000. `offloadTask` checks it before the host-ready hook and before prepare. A successful claim records `host_limits` on the ledger row and a note `dom_read_cap_ms=<value>`. A value outside that range does not claim a send. A timeout before the claim fails cleanly (`NOT_SENT` or a thrown pre-claim error, `doNotResend: false` when nothing was claimed). A timeout after the claim, including a slow read-back, stays `SUBMISSION_UNKNOWN` with `doNotResend: true`.
+
+`whenHostReady` is an optional function or promise. `offloadTask`, `sendPrepared`, and `recoverTask` await it before any timed browser step. The `budgetMs` clock in `waitAndCollect` starts only after that signal resolves. If the hook rejects, the error is `HOST_NOT_READY`. That happens before a new claim. Recovery does not mark an existing claim unknown just because the hook rejected, and it does not send.
+
+## Browser actions for a non-CUA host
+
+`adapters/generic/browser_actions.mjs` is the action contract: `url`, `evaluate`, `click`, `press`, `fill`, `readComposer`, and `queryRole`. Each call takes `timeoutMs`. A Playwright/CUA `tab` still works; `resolveBrowserActions` adapts it. `createMockActions` and `createFileRelayActions` are in-repo references. `asPlaywrightTab(actions, { id })` is the shape `offloadTask` already drives. `CDP_OP_REFERENCE` maps those operations and does not open a socket.
+
+Fill pastes. It does not assign `textContent`. After the paste, the composer is read back with `innerText`, newline-normalized (`\r\n` and `\r` become `\n`), and compared to the prompt. Blank lines, indentation, and fenced code blocks must match. A mismatch throws `COMPOSER_TEXT_MISMATCH` before the send click. After a claim, that failure is `SUBMISSION_UNKNOWN` and does not retry. A file relay also refuses a send click until that comparison has succeeded, refuses coordinate clicks, and refuses an unknown operation.
+
+Call `listVisibleSelection(tab)` before choosing `requestedModel` and `requestedEffort`. It opens the model menu, returns the visible option labels and the effort label, and closes the menu. It does not activate a different option and does not send. Those strings are page text. The helper does not hard-code a model display name. Selectors and label rules for the shipped Chinese ordinary-Chat profile live in `adapters/generic/page_adapter.mjs` (`chatgpt-ordinary-chat-zh`, version 1). Another locale supplies its own adapter.
+
+A page executor embedded by the host follows `adapters/generic/executor_state.mjs`. `starting` and `running` reject a second executor. `failed` and `stopped` allow a new executor with a new token and a new session. Do not reload the document after a claim in order to reinject: a reload changes the bound session and must be refused. Re-inject in the same document only from `failed` or `stopped`.
+
+## Authorized tab and CSP
+
+Use only a tab the user has authorized for this task. If the host must bypass CSP so the page can reach a loopback channel, enable that bypass only for the task. When the task ends, disable the bypass, reload the tab, and verify the page again blocks the loopback port. Tighten a page-channel token file to owner-read/write only, and invalidate that token as soon as the first page session binds. This repository does not store credentials and does not open that channel for you.
 
 The model is verified before the claim. `observeNewChat` opens the model menu, reads the one checked model and the effort on that menu, then closes the menu. The requested names are compared with those labels. A request, a default, or an older task is not a substitute for that menu read. The claim stores the menu observation, including the model name.
 

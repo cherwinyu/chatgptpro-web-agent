@@ -18,6 +18,11 @@
   "host_wait": {
     "owner": "calling_agent",
     "bounded_wait_required": true,
+    "budget_ms_min": 1,
+    "budget_ms_max": 45000,
+    "dom_read_cap_ms_default": 10000,
+    "dom_read_cap_ms_min": 1,
+    "dom_read_cap_ms_max": 120000,
     "on_wait_budget_exhausted": "return_receipt_and_resume_same_task",
     "on_task_deadline": "stop_waiting_no_resend",
     "ui_completion_is_delivery": false,

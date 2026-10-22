@@ -6,8 +6,12 @@ Do not post credentials, real ledger data, private prompts, full chat URLs or pr
 
 The project does not authenticate third-party browser sessions, and a local at-most-once claim is not a distributed server exactly-once guarantee. Only use repositories and accounts you are authorized to access. Research/noncommercial descriptions do not override third-party terms.
 
+## Authorized tab and CSP bypass
+
+Drive only a browser tab the user has authorized for the current task. A host that must relax Content-Security-Policy so that page can reach a loopback helper may do so only while that task is running. When the task finishes, disable the bypass, reload the tab, and verify the page blocks the loopback port again. A page-channel token file should be owner-read/write only and must be invalidated once the first page session binds. This repository does not store cookies, account tokens, or that bypass flag. `SUBMISSION_UNKNOWN` still means do not send again.
+
 ## Privacy / 隐私
 
 Offline commands use disposable synthetic fixtures. Do not point `PRO_BRIDGE_LEDGER` at a real ledger, and do not commit `.env`, local ledgers, browser profiles, or home-directory paths. `scripts/publication_audit.py` rejects blocked internal paths, personal mailbox patterns, home-directory paths, and common token shapes; a pass is a rule check, not a promise that every personal fact has been found. A passing audit does not set release approval, third-party rights clearance, or brand permission.
 
-中文：本仓库（`cherwinyu/chatgptpro-web-agent`）已公开提供采用 PolyForm Noncommercial 1.0.0 许可的独立非商业离线研究源码，不适用于生产。公开预发布版本 `v0.1.0-rc.3` 是离线预发布候选，不是正式稳定版 Release，该包也不包含这次在线分担。2026-10-20 确有一次单宿主历史验收，只覆盖提交 `4399582ddc500216cf4a6034f273946f2b79208d` 与运行时摘要 `68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39`。当前 Runtime 摘要尚未再次完成在线验收。这次历史验收不是生产就绪，也不是第三方服务授权。不要在 Issue 提交账号、Cookie、个人路径、真实回执、会话 URL 或私人源码。启用后请使用 GitHub 私密漏洞报告；在该入口尚未可用时，不要在 Issue 中披露敏感细节，先请维护者提供私密沟通方式。源码公开不改变这些处理规则，也不会把当前 Runtime 摘要变成已再次在线验收，不适用于生产环境，也不是第三方服务授权。第三方权利仍未因源码公开而核清。
+中文：本仓库（`cherwinyu/chatgptpro-web-agent`）已公开提供采用 PolyForm Noncommercial 1.0.0 许可的独立非商业离线研究源码，不适用于生产。公开预发布版本 `v0.1.0-rc.3` 是离线预发布候选，不是正式稳定版 Release，该包也不包含这次在线分担。2026-10-20 确有一次单宿主历史验收，只覆盖提交 `4399582ddc500216cf4a6034f273946f2b79208d` 与运行时摘要 `68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39`。当前 Runtime 摘要尚未再次完成在线验收。这次历史验收不是生产就绪，也不是第三方服务授权。不要在 Issue 提交账号、Cookie、个人路径、真实回执、会话 URL 或私人源码。启用后请使用 GitHub 私密漏洞报告；在该入口尚未可用时，不要在 Issue 中披露敏感细节，先请维护者提供私密沟通方式。源码公开不改变这些处理规则，也不会把当前 Runtime 摘要变成已再次在线验收，不适用于生产环境，也不是第三方服务授权。第三方权利仍未因源码公开而核清。只操作这次任务已获用户授权的标签页。若必须在任务期间放宽 CSP，结束时要关闭绕过、重新加载，并核验页面再次拦截本机端口。页面通道 token 文件仅所有者可读写，并在首个页面 session 绑定后作废。`SUBMISSION_UNKNOWN` 仍然表示不要再次发送。

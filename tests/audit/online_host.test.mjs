@@ -13,9 +13,12 @@ import { readChatGPTPage } from '../../adapters/generic/browser_host.mjs';
 import { offloadTask, recoverTask, sendPrepared, waitAndCollect, readOnlyNewChat, readStandaloneChat, observeNewChat, selectionLinesFromTexts, bindMenuEvidence, SELECTION_EVIDENCE_TTL_SECONDS, CHINESE_ORDINARY_CHAT } from '../../adapters/generic/online_host.mjs';
 function fixture() {
   const events = [];
+  let composed = '';
   const target = { tab_id: 'tab', mode: 'CHAT', model_label: 'Observed', effort_label: 'Observed' };
   const tab = { id: 'tab', playwright: { locator: selector => ({
-    fill: async text => events.push(['fill', text]), click: async () => events.push(['click', selector]),
+    fill: async text => { composed = text; events.push(['fill', text]); },
+    innerText: async () => composed,
+    click: async () => events.push(['click', selector]),
   }) } };
   const prepared = { task_id: 'synthetic', prompt: 'immutable prompt', browser_target: target };
   const observe = async () => ({ ...target, composer_ready: true, logged_in: true, selection_unambiguous: true });
@@ -46,7 +49,10 @@ test('page change after claim records uncertainty and never sends', async () => 
 });
 test('lost click response never retries', async () => {
   const f = fixture(); let clicks = 0;
-  f.tab.playwright.locator = () => ({fill: async () => {}, click: async () => { clicks++; throw Error('lost'); }});
+  f.tab.playwright.locator = () => ({
+    fill: async () => {}, innerText: async () => 'immutable prompt',
+    click: async () => { clicks++; throw Error('lost'); },
+  });
   await assert.rejects(sendOnce(f), /lost/); assert.equal(clicks, 1);
   assert.equal(f.events.at(-1)[0], 'mark-unknown');
 });
@@ -294,7 +300,10 @@ test('offloadTask returns one bounded reply and recovery repeats its hash', { ti
       ? { url: FINAL_URL, status: 'FINAL_CANDIDATE', turnId: 'turn', responseIds: 'reply', fingerprint: 'abc', contentLength: answer.length, text: answer }
       : { url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
         selection_lines: [observation.effort_label] },
-    locator: () => ({ fill: async () => {}, click: async () => { clicks += 1; } }),
+    locator: (() => {
+      let composed = '';
+      return () => ({ fill: async text => { composed = text; }, innerText: async () => composed, click: async () => { clicks += 1; } });
+    })(),
   } };
   const result = await offloadTask({ tab, browserId, run, evidenceDirectory, repository: 'example/repo',
     sourceSha: 'a'.repeat(40), sourceRef: 'main', taskFile, orchestration: 'synthetic-offload',
@@ -312,6 +321,10 @@ test('offloadTask returns one bounded reply and recovery repeats its hash', { ti
   const stored = JSON.parse(readFileSync(join(ledger, 'ledger.json'), 'utf8')).tasks[result.task_id];
   assert.equal(stored.send_attempts, 1);
   assert.equal(stored.state, 'RESULT_SEEN');
+  assert.equal(stored.host_limits.dom_read_cap_ms, 10000);
+  assert.equal(stored.host_limits.budget_ms, 8000);
+  assert.equal(stored.host_limits.page_adapter_id, 'chatgpt-ordinary-chat-zh');
+  assert.equal(stored.notes.includes('dom_read_cap_ms=10000'), true);
   const again = await recoverTask({ run });
   assert.equal(again.recovered, true);
   assert.equal(again.sha256, result.sha256);
@@ -350,7 +363,13 @@ test('an unsent prepare is not sent by recovery, and a lost click is not repeate
   const tab = { id: 'synthetic-tab', playwright: {
     evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
       selection_lines: [observation.effort_label] }),
-    locator: () => ({ fill: async () => {}, click: async () => { clicks += 1; throw Error('lost click'); } }),
+    locator: (() => {
+      let composed = '';
+      return () => ({
+        fill: async text => { composed = text; }, innerText: async () => composed,
+        click: async () => { clicks += 1; throw Error('lost click'); },
+      });
+    })(),
   } };
   const sent = await sendPrepared({ tab, browserId, run, observe: async () => observation, composer: 'box', sendButton: 'send' });
   assert.equal(sent.status, 'SUBMISSION_UNKNOWN');
@@ -386,7 +405,13 @@ test('an unsent continuation re-reads selection evidence and claimed recovery do
     evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
       selection_lines: [observation.effort_label] }),
     getByRole: () => { throw Error('MENU_OPENED'); },
-    locator: () => ({ fill: async () => {}, click: async () => { clicks += 1; throw Error('lost click'); } }),
+    locator: (() => {
+      let composed = '';
+      return () => ({
+        fill: async text => { composed = text; }, innerText: async () => composed,
+        click: async () => { clicks += 1; throw Error('lost click'); },
+      });
+    })(),
   } };
   const expired = await sendPrepared({ tab, browserId, run, observe: async () => {
     observations += 1;
@@ -484,16 +509,20 @@ function closedControlPage({ modelLines = ['GPT-6', 'Pro'], pickers = 1, hideLin
 }
 
 /** Run the serialized page reader. The realm has a synthetic DOM only. */
-function evaluateSerialized(fn, document) {
-  const realm = vm.createContext({ document, location: { href: 'https://chatgpt.com/' } });
+function evaluateSerialized(fn, document, profile = CHINESE_ORDINARY_CHAT) {
+  const realm = vm.createContext({
+    document, location: { href: 'https://chatgpt.com/' }, profileJson: JSON.stringify(profile),
+  });
   assert.equal('selectionLinesFromTexts' in realm, false);
   // Structured clone into this realm. Cross-realm strings are not reference-equal.
-  return JSON.parse(JSON.stringify(vm.runInContext(`(${fn.toString()})()`, realm)));
+  return JSON.parse(JSON.stringify(vm.runInContext(`(${fn.toString()})(JSON.parse(profileJson))`, realm)));
 }
 
 test('serialized new-chat reader sees two visible lines and does not keep saved labels', async () => {
   assert.equal(readStandaloneChat.toString().includes('selectionLinesFromTexts'), false);
   assert.equal(readStandaloneChat.toString().includes('bindMenuEvidence'), false);
+  assert.equal(readStandaloneChat.toString().includes('GPT-6'), false);
+  assert.equal(readStandaloneChat.toString().includes('选择 ChatGPT 模型'), false);
   const seen = evaluateSerialized(readStandaloneChat, closedControlPage());
   assert.deepEqual(seen.selection_lines, ['GPT-6', 'Pro']);
   assert.deepEqual(evaluateSerialized(readStandaloneChat, closedControlPage({ flatText: 'GPT-6\nPro' })).selection_lines, ['GPT-6', 'Pro']);
@@ -603,7 +632,9 @@ function claimedPage(lines, page = {}) {
   f.prepared.browser_target = { mode: 'CHAT', project_id: null, conversation_id: 'NEW', browser_context: 'browser',
     tab_id: 'tab', model_label: 'Observed', effort_label: 'Observed' };
   f.observe = async () => evidence;
-  f.tab.playwright.locator = () => ({ fill: async () => { writes += 1; }, click: async () => { writes += 1; } });
+  f.tab.playwright.locator = () => ({
+    fill: async () => { writes += 1; }, innerText: async () => f.prepared.prompt, click: async () => { writes += 1; },
+  });
   f.tab.playwright.getByRole = () => { throw Error('MENU_OPENED'); };
   f.tab.playwright.evaluate = async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false,
     selection_lines: lines, ...page });
@@ -676,7 +707,10 @@ test('after the claim the model menu stays closed and send is clicked once', asy
       return { click: async () => roles.push('click'), innerText: async () => 'Pro', press: async () => roles.push('escape') };
     },
     evaluate: async () => ({ url: 'https://chatgpt.com/', chat: true, work: true, ready: true, login: false, selection_lines: ['Pro'] }),
-    locator: selector => ({ fill: async () => roles.push('fill'), click: async () => roles.push('send:' + selector) }),
+    locator: selector => ({
+      fill: async () => roles.push('fill'), innerText: async () => 'immutable prompt',
+      click: async () => roles.push('send:' + selector),
+    }),
   } };
   const observed = await observeNewChat(tab, 'browser');
   const bound = bindMenuEvidence(observed, { browserId: 'browser', tabId: 'tab', taskId: 'synthetic' });

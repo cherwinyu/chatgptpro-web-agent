@@ -31,7 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args or args[0] in {"-h", "--help"}:
         print(
             "usage: python adapters/generic/run_bridge.py <cli-command> --ledger <disposable-dir> [flags]\n"
-            "Legacy ledger commands require --ledger or PRO_BRIDGE_LEDGER; inspect requires explicit --ledger. Demo/doctor need no ledger. No retries or browser sends.",
+            "Legacy ledger commands require --ledger or PRO_BRIDGE_LEDGER; inspect requires explicit --ledger. Demo/doctor need no ledger. No retries or browser sends.\n"
+            "budgetMs is an integer from 1 to 45000. domReadCapMs is an integer from 1 to 120000 (default 10000).",
             file=sys.stderr,
         )
         return 2

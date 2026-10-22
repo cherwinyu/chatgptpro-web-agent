@@ -71,9 +71,27 @@ class PublicPreviewTests(unittest.TestCase):
             self.assertEqual(report['status'],'REFUSED')
             self.assertIn('forbidden_path',report['rule_violations'])
 
+    def test_integrator_name_is_allowed_only_in_the_note(self):
+        note = self.root / "docs/PROJECTSHOE_CURSOR_INTEGRATION.zh-CN.md"
+        self.assertIn(note.relative_to(self.root).as_posix(), publication_audit.INTEGRATOR_NOTE_PATHS)
+        self.assertTrue(publication_audit.PRIVATE_TERMS.search(note.read_text(encoding="utf-8")))
+        report = publication_audit.check(self.root)
+        self.assertEqual(report["status"], "RULE_CHECKS_PASSED", report)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "sample"
+            shutil.copytree(self.root, root, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+            (root / "docs/LEAK.md").write_text("Project" + "Shoe internal\n", encoding="utf-8")
+            names = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+            (root / "PUBLIC_FILELIST.txt").write_text("\n".join(names) + "\n", encoding="utf-8")
+            refused = publication_audit.check(root)
+            self.assertEqual(refused["status"], "REFUSED")
+            self.assertIn("private_internal_reference", refused["rule_violations"])
+
     def test_line_endings_are_pinned_without_approving_release(self):
         attributes=(self.root/'.gitattributes').read_text(encoding='utf-8')
         self.assertIn('* text=auto eol=lf', attributes)
+        self.assertIn('*.lock.json -text', attributes)
+        self.assertIn('LICENSE -text', attributes)
         report=publication_audit.check(self.root)
         self.assertEqual(report['status'],'RULE_CHECKS_PASSED', report)
         self.assertFalse(report['release_approved'])

@@ -1,2 +1,9 @@
 # Checkout the audited LF bytes even when core.autocrlf is true.
 * text=auto eol=lf
+
+# Hash-pinned bytes. Git must not renormalize these; the SHA-256 is over the raw blob.
+# Source text stays on the rule above so a CRLF working tree cannot change the runtime digest.
+LICENSE -text
+docs/legal/LICENSE -text
+*.lock -text
+*.lock.json -text
