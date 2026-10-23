@@ -50,7 +50,7 @@ def manifest_for(task_id: str, clock: bridge_v2.Clock, **overrides) -> dict:
 
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, str(CLI), *args], capture_output=True, text=True, encoding="utf-8")
+    return subprocess.run([sys.executable, "-B", str(CLI), *args], capture_output=True, text=True, encoding="utf-8")
 
 
 def git(repo: Path, *args: str) -> None:
@@ -82,7 +82,7 @@ def test_process_race(root: Path) -> None:
     script_path.write_text(script, encoding="utf-8")
     ledger = root / "ledger"
     procs = [
-        subprocess.Popen([sys.executable, str(script_path), str(TOOLS), str(ledger), str(manifest_path)], stdout=subprocess.PIPE, text=True)
+        subprocess.Popen([sys.executable, "-B", str(script_path), str(TOOLS), str(ledger), str(manifest_path)], stdout=subprocess.PIPE, text=True)
         for _ in range(2)
     ]
     outputs = [proc.communicate()[0].strip() for proc in procs]
@@ -125,20 +125,20 @@ def test_lock(root: Path) -> None:
     (root / "hold.py").write_text(hold, encoding="utf-8")
     (root / "wait.py").write_text(wait, encoding="utf-8")
     flag = root / "held.txt"
-    holder = subprocess.Popen([sys.executable, str(root / "hold.py"), str(TOOLS), str(ledger_root / "ledger.lock"), str(flag)])
+    holder = subprocess.Popen([sys.executable, "-B", str(root / "hold.py"), str(TOOLS), str(ledger_root / "ledger.lock"), str(flag)])
     for _ in range(50):
         if flag.exists():
             break
         time.sleep(0.05)
     active = subprocess.run(
-        [sys.executable, str(root / "wait.py"), str(TOOLS), str(ledger_root / "ledger.lock"), "0.4"],
+        [sys.executable, "-B", str(root / "wait.py"), str(TOOLS), str(ledger_root / "ledger.lock"), "0.4"],
         capture_output=True,
         text=True,
     )
     held_row = json.loads((ledger_root / "ledger.json").read_text(encoding="utf-8"))["tasks"][task_id]
     attempts_while_held = held_row["send_attempts"]
     waiter = subprocess.Popen(
-        [sys.executable, str(root / "wait.py"), str(TOOLS), str(ledger_root / "ledger.lock"), "8"],
+        [sys.executable, "-B", str(root / "wait.py"), str(TOOLS), str(ledger_root / "ledger.lock"), "8"],
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -424,12 +424,12 @@ def test_deadline_wait(root: Path) -> None:
         encoding="utf-8",
     )
     flag = root / "deadline-held"
-    holder = subprocess.Popen([sys.executable, str(holder_script), str(TOOLS), str(ledger / "ledger.lock"), str(flag)])
+    holder = subprocess.Popen([sys.executable, "-B", str(holder_script), str(TOOLS), str(ledger / "ledger.lock"), str(flag)])
     for _ in range(50):
         if flag.exists():
             break
         time.sleep(0.05)
-    claim = subprocess.run([sys.executable, str(CLI), "claim", "--ledger", str(ledger), "--task", body["task_id"]], capture_output=True, text=True, encoding="utf-8")
+    claim = subprocess.run([sys.executable, "-B", str(CLI), "claim", "--ledger", str(ledger), "--task", body["task_id"]], capture_output=True, text=True, encoding="utf-8")
     holder.wait(timeout=5)
     status = json.loads(run_cli(["status", "--ledger", str(ledger), "--task", body["task_id"]]).stdout)
     check("S11", claim.returncode == 2 and status["state"] == "TIMEOUT" and status["send_attempts"] == 0, f"code={claim.returncode} state={status['state']} attempts={status['send_attempts']}")
@@ -1390,6 +1390,7 @@ def test_r1_r4(root: Path) -> None:
     holder = subprocess.Popen(
         [
             sys.executable,
+            "-B",
             "-c",
             "import os,sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import bridge_v2; lock=bridge_v2.FileLock(Path(sys.argv[2]), timeout=5); lock.__enter__(); Path(sys.argv[3]).write_text('held', encoding='utf-8'); os._exit(97)",
             str(TOOLS),
