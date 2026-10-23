@@ -203,5 +203,44 @@ class ReceiptCLITests(unittest.TestCase):
         self.assertEqual(self.file.read_bytes(), before)
 
 
+class RunBridgeGuardTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="run-bridge-guard-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.env = dict(os.environ)
+        for name in ("PRO_BRIDGE_LEDGER", "PRO_BRIDGE_PROTECTED_LEDGER",
+                     "PRO_BRIDGE_DEPLOYMENT_LOCK", "PRO_BRIDGE_DEPLOYMENT_LOCK_SHA256"):
+            self.env.pop(name, None)
+
+    def assert_refused(self, *args, keyword):
+        completed = subprocess.run([sys.executable, "-B", str(ROOT / "adapters/generic/run_bridge.py"),
+                                    *args], env=self.env, capture_output=True, text=True,
+                                   encoding="utf-8", timeout=30)
+        self.assertEqual(completed.returncode, 2, completed.stderr)
+        self.assertIn(keyword, completed.stderr)
+
+    def test_no_arguments_shows_usage(self):
+        self.assert_refused(keyword="usage")
+
+    def test_duplicate_ledger_refused(self):
+        self.assert_refused("status", "--ledger", str(self.root / "first"),
+                            "--ledger", str(self.root / "second"), keyword="only once")
+
+    def test_demo_refuses_explicit_ledger(self):
+        self.assert_refused("demo", "--ledger", str(self.root), keyword="demo refuses --ledger")
+
+    def test_inspect_requires_explicit_ledger_despite_environment(self):
+        self.env["PRO_BRIDGE_LEDGER"] = str(self.root)
+        self.assert_refused("inspect", keyword="explicit --ledger")
+
+    def test_stateful_command_requires_ledger(self):
+        self.assert_refused("status", keyword="refusing to start")
+
+    def test_protected_ledger_refused(self):
+        self.env["PRO_BRIDGE_PROTECTED_LEDGER"] = str(self.root)
+        self.assert_refused("status", "--ledger", str(self.root), keyword="PRO_BRIDGE_PROTECTED_LEDGER")
+
+
 if __name__ == "__main__":
     unittest.main()
