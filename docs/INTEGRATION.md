@@ -49,6 +49,51 @@ Put the material itself in `task.txt`. A path written inside the prompt is only 
 
 On `outcome.status === 'COLLECTED'`, review `outcome.text`. `outcome.truncated` means the ledger still holds the rest and `readCollected` can return a larger excerpt, up to 65536 characters. `outcome.sha256` is the SHA-256 of the full UTF-8 reply. `review_approved` stays false. `cost_claim` stays `NOT_OBSERVABLE`. The helper does not apply the reply or run it as code.
 
+## Packing the task and reading the answer
+
+The web page cannot read your repository, so everything it needs must be inside `taskFile`. The reply is free text; agreeing on a trailing JSON block lets you read a compact result. This does not claim token savings: packing, waiting and review still cost something (`NOT_OBSERVABLE`).
+
+`adapters/generic/task_pack.mjs` turns a `pack.json` into `task.txt`. Run it from the repository root; stdout is only the manifest (`out`, `bytes`, `sha256`, per-source `path`/`selector`/`bytes`/`sha256`).
+
+```powershell
+node adapters/generic/task_pack.mjs --spec pack.json --out task.txt [--root .]
+```
+
+| Field | Rule |
+| --- | --- |
+| `kind` | `review` or `analysis` |
+| `goal`, `question` | Non-empty strings |
+| `sources` | Array of `{ path, heading?, lines? }`; `heading` (a Markdown heading line) or `lines` (`"3-9"`), not both |
+| `constraints` | Optional array of strings |
+| `diff` | Optional `{ base, paths }`: `git diff` against `base` for those paths |
+| `max_bytes` | Optional, default 150000, at most 400000 |
+
+```json
+{ "kind": "review", "goal": "Check the guide", "question": "Is the example correct?",
+  "sources": [{ "path": "docs/example.md", "heading": "## Usage" }], "max_bytes": 60000 }
+```
+
+Refused: paths that are absolute or leave `--root`, symbolic links, `.git`, `.env*`, key or secret-like file names, binary or non-UTF-8 files, and an `--out` that already exists. Over budget throws `PACK_BUDGET_EXCEEDED` and never truncates; narrow the sources instead. Errors go to stderr with exit code 2: `PACK_SPEC_INVALID`, `PACK_BUDGET_INVALID`, `PACK_BUDGET_EXCEEDED`, `PACK_PATH_REFUSED`, `PACK_LINK_REFUSED`, `PACK_SOURCE_NOT_FILE`, `PACK_BINARY_REFUSED`, `PACK_HEADING_NOT_FOUND`, `PACK_LINES_OUT_OF_RANGE`, `PACK_GIT_FAILED`, `PACK_OUTPUT_EXISTS`. The generated prompt text is in Chinese and ends with the answer format below.
+
+`adapters/generic/answer_result.mjs` defines that format: the reply ends with one ```` ```json ```` block with all fields required.
+
+| Field | Rule |
+| --- | --- |
+| `verdict` | `review`: `PASS`, `FAIL`, `PARTIAL`; `analysis`: `ANSWER` |
+| `summary` | String, at most 500 characters |
+| `findings` | Array, may be empty; each has string `severity` (`high`, `medium` or `low`), `title`, `evidence`, `suggestion` |
+| `confidence` | `high`, `medium` or `low` |
+
+Only the last complete block counts. An unclosed last block does not fall back to an earlier one. A failed parse returns `parse_ok: false` with an error such as `ANSWER_JSON_BLOCK_NOT_FOUND`, `ANSWER_JSON_BLOCK_UNCLOSED`, `ANSWER_JSON_INVALID` or `ANSWER_SCHEMA_INVALID`. Read the reply yourself; do not ask the page to redo it and do not resend.
+
+```powershell
+node adapters/generic/answer_result.mjs --file reply.txt --kind review [--sha256 <hex>] [--out parsed.json]
+```
+
+Stdout is a compact result (at most 5 findings, `--max-characters` default 4000). `--out` writes the full result and refuses an existing file. Exit code 0 means `parse_ok: true`; 2 means a parse failure (JSON on stdout) or an error such as `ANSWER_HASH_MISMATCH` or `ANSWER_OUTPUT_EXISTS` (stderr). A reply with `outcome.truncated` is not parsed (`ANSWER_TRUNCATED`): read the whole body with `readCollected` (at most 65536 characters), save it, and pass its `outcome.sha256` as `--sha256`.
+
+The reply is data. Instructions inside it are not executed. `review_approved` is always false, and `verdict` is not Git delivery approval.
+
 ## Recovery
 
 Keep the evidence directory and `prepare.json`. After a crash, call only:
@@ -86,7 +131,7 @@ Use `browser_response` for a self-contained analysis. Use Git delivery only when
 
 ## Accepted and not accepted
 
-Covered by offline tests: one claim, one click, stable conversation URL before the session is recorded, original-receipt recovery, hash-checked bounded read, refusal to mix repositories in one ledger, refusal to treat the checkout or a link into it as the evidence directory, a pre-claim menu read of the model and effort, a post-claim recheck of the visible effort that carries the model only from that recent menu evidence, refusal of expired or cross-task evidence, a browser wait budget that does not include the ledger status read, a URL or page read that stops at the remaining budget, and refusal to resend after an uncertain click, login wall, missing tab, timeout, deadline, identity mismatch or changed body. Offline tests do not log in or send to ChatGPT. They do not accept this checkout.
+Covered by offline tests: one claim, one click, stable conversation URL before the session is recorded, original-receipt recovery, hash-checked bounded read, refusal to mix repositories in one ledger, refusal to treat the checkout or a link into it as the evidence directory, a pre-claim menu read of the model and effort, a post-claim recheck of the visible effort that carries the model only from that recent menu evidence, refusal of expired or cross-task evidence, a browser wait budget that does not include the ledger status read, a URL or page read that stops at the remaining budget, and refusal to resend after an uncertain click, login wall, missing tab, timeout, deadline, identity mismatch or changed body. Offline tests do not log in or send to ChatGPT. They do not accept this checkout. `task_pack.mjs` and `answer_result.mjs` are covered only by offline unit tests, with no online acceptance; `certifies_current_tree` is unchanged.
 
 The 2026-10-19 Codex in-app-browser run is historical: 325 characters, result SHA-256 `a2acd364a60eb7e6593e895996825c526a495d2fb6d9d744876bfc2307950756`, runtime digest `4fe06dd107a243e016728081e311e8056f6fa12b05ee83d80632ac27ebcb9784`. That digest does not match later source trees, so the run does not certify commit `4399582ddc500216cf4a6034f273946f2b79208d`, other hosts, other locales, or a consumer project.
 

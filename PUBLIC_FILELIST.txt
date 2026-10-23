@@ -8,10 +8,12 @@ README.md
 README.zh-CN.md
 SECURITY.md
 THIRD_PARTY_NOTICES.md
+adapters/generic/answer_result.mjs
 adapters/generic/browser_host.mjs
 adapters/generic/local_transport.mjs
 adapters/generic/online_host.mjs
 adapters/generic/run_bridge.py
+adapters/generic/task_pack.mjs
 capability-manifest.json
 config/bridge.example.env
 docs/INTEGRATION.md
@@ -36,8 +38,10 @@ schemas/result.example.json
 schemas/ui-selection.example.json
 scripts/commit_identity_gate.py
 scripts/publication_audit.py
+tests/audit/answer_result.test.mjs
 tests/audit/browser_host.test.mjs
 tests/audit/online_host.test.mjs
+tests/audit/task_pack.test.mjs
 tests/audit/test_browser_delivery.py
 tests/audit/test_deployment.py
 tests/audit/test_receipts.py

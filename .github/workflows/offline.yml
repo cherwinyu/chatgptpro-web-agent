@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: '22'
       - name: Browser host fixtures (no live browser or account)
-        run: node --test tests/audit/browser_host.test.mjs tests/audit/online_host.test.mjs
+        run: node --test tests/audit/browser_host.test.mjs tests/audit/online_host.test.mjs tests/audit/task_pack.test.mjs tests/audit/answer_result.test.mjs
       - name: Require no-reply author and committer on all reachable history
         shell: pwsh
         run: |

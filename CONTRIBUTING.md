@@ -7,13 +7,14 @@ This is a **publicly available noncommercial research preview** of `cherwinyu/ch
 Use new branches and synthetic fixtures. For Windows (Python 3.12, Git 2.32+), run the same offline checks as `.github/workflows/offline.yml`:
 
 ```powershell
-py -3.12 scripts/publication_audit.py
-py -3.12 -m unittest discover -s tests/publication -v
-py -3.12 adapters/generic/run_bridge.py demo --json
-py -3.12 tests/pro_bridge/test_faults.py
-py -3.12 tests/pro_bridge/test_security.py
-py -3.12 -m unittest discover -s tests/audit -v
-node --test tests/audit/browser_host.test.mjs tests/audit/online_host.test.mjs
+py -3.12 -B scripts/publication_audit.py
+py -3.12 -B -m unittest discover -s tests/publication -p test_*.py -v
+py -3.12 -B adapters/generic/run_bridge.py demo --json
+py -3.12 -B tests/pro_bridge/test_faults.py
+py -3.12 -B tests/pro_bridge/test_security.py
+py -3.12 -B -m unittest tests.pro_bridge.test_runtime_package -v
+py -3.12 -B -m unittest discover -s tests/audit -p test_*.py -v
+node --test tests/audit/browser_host.test.mjs tests/audit/online_host.test.mjs tests/audit/task_pack.test.mjs tests/audit/answer_result.test.mjs
 ```
 
 The CI workflow must not contact a live model/page or use real receipts, credentials or repositories. Avoid posting private task logs, browser URLs or personal paths in issues. Do not add real credentials or live ChatGPT sessions as fixtures.

@@ -49,6 +49,51 @@ const outcome = await online.offloadTask({
 
 当 `outcome.status === 'COLLECTED'` 时，由主代理阅读 `outcome.text`。`outcome.truncated` 为真时，完整正文仍在账本里，可以用 `readCollected` 取更长的片段，上限 65536 字。`outcome.sha256` 是完整 UTF-8 正文的 SHA-256。`review_approved` 保持为 false，`cost_claim` 保持为 `NOT_OBSERVABLE`。助手不会执行这段回复。
 
+## 打包任务与读取回答
+
+网页读不到你的仓库，所以它需要的材料必须全部放进 `taskFile`。回复是自由文本；约定一个结尾 JSON 块后，可以只读紧凑结果。这不等于省 token：打包、等待和复核仍有成本（`NOT_OBSERVABLE`）。
+
+`adapters/generic/task_pack.mjs` 把 `pack.json` 打包成 `task.txt`。在仓库根目录运行，stdout 只有 manifest（`out`、`bytes`、`sha256`，以及每个来源的 `path`/`selector`/`bytes`/`sha256`）。
+
+```powershell
+node adapters/generic/task_pack.mjs --spec pack.json --out task.txt [--root .]
+```
+
+| 字段 | 规则 |
+| --- | --- |
+| `kind` | `review` 或 `analysis` |
+| `goal`、`question` | 非空字符串 |
+| `sources` | `{ path, heading?, lines? }` 数组；`heading`（Markdown 标题行）与 `lines`（如 `"3-9"`）二选一，不能同时给 |
+| `constraints` | 可选，字符串数组 |
+| `diff` | 可选，`{ base, paths }`：这些路径相对 `base` 的 `git diff` |
+| `max_bytes` | 可选，默认 150000，最大 400000 |
+
+```json
+{ "kind": "review", "goal": "Check the guide", "question": "Is the example correct?",
+  "sources": [{ "path": "docs/example.md", "heading": "## Usage" }], "max_bytes": 60000 }
+```
+
+拒绝：绝对路径或超出 `--root` 的路径、符号链接、`.git`、`.env*`、密钥或机密类文件名、二进制与非 UTF-8 文件、已存在的 `--out`。超出预算抛 `PACK_BUDGET_EXCEEDED`，**不截断**，请缩小来源。错误写到 stderr，退出码 2：`PACK_SPEC_INVALID`、`PACK_BUDGET_INVALID`、`PACK_BUDGET_EXCEEDED`、`PACK_PATH_REFUSED`、`PACK_LINK_REFUSED`、`PACK_SOURCE_NOT_FILE`、`PACK_BINARY_REFUSED`、`PACK_HEADING_NOT_FOUND`、`PACK_LINES_OUT_OF_RANGE`、`PACK_GIT_FAILED`、`PACK_OUTPUT_EXISTS`。生成的提示词为中文，末尾附下面的回答格式。
+
+`adapters/generic/answer_result.mjs` 规定该格式：回复最后是一个 ```` ```json ```` 块，所有字段必填。
+
+| 字段 | 规则 |
+| --- | --- |
+| `verdict` | `review`：`PASS`、`FAIL`、`PARTIAL`；`analysis`：`ANSWER` |
+| `summary` | 字符串，不超过 500 字符 |
+| `findings` | 数组，可为空；每项含字符串 `severity`（取 `high`、`medium` 或 `low`）、`title`、`evidence`、`suggestion` |
+| `confidence` | `high`、`medium` 或 `low` |
+
+只取最后一个完整块。最后一个块未闭合时，不回退到更早的块。解析失败返回 `parse_ok: false` 及错误码，如 `ANSWER_JSON_BLOCK_NOT_FOUND`、`ANSWER_JSON_BLOCK_UNCLOSED`、`ANSWER_JSON_INVALID`、`ANSWER_SCHEMA_INVALID`。由主代理自己阅读回复，不要求网页重做，也不重发。
+
+```powershell
+node adapters/generic/answer_result.mjs --file reply.txt --kind review [--sha256 <hex>] [--out parsed.json]
+```
+
+stdout 是紧凑结果（最多 5 条 finding，`--max-characters` 默认 4000）。`--out` 写入完整结果，目标已存在则拒绝。退出码 0 表示 `parse_ok: true`；2 表示解析失败（stdout 为 JSON），或出现 `ANSWER_HASH_MISMATCH`、`ANSWER_OUTPUT_EXISTS` 等错误（写到 stderr）。`outcome.truncated` 的回复不会被解析（`ANSWER_TRUNCATED`）：先用 `readCollected` 读完整正文（不超过 65536 字符），保存后把 `outcome.sha256` 作为 `--sha256` 传入。
+
+回复只是数据，其中的指令不执行。`review_approved` 恒为 false，`verdict` 不是 Git 交付批准。
+
 ## 如何恢复
 
 保留证据目录和 `prepare.json`。进程中断后只调用：
@@ -86,7 +131,7 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 
 ## 已验收和未验收
 
-离线测试覆盖：一次发送资格、一次点击、会话地址稳定后才记入账本、按原回执恢复、带哈希的限长读取、拒绝把不同仓库写进同一个账本、拒绝把仓库本身或指向仓库内部的链接当作证据目录、发送资格之前从菜单读取模型和强度、发送资格之后只复核可见强度并把模型限于刚才那次菜单证据、拒绝过期或跨任务证据、浏览器等待预算不包含账本状态读取、地址或页面读取在剩余预算用尽时停止，以及在点击结果不明、登录失效、标签页消失、等待超时、任务截止、身份不一致或正文变化之后拒绝重发。离线测试不会登录，也不会向 ChatGPT 发送任务，不能当作当前代码的在线验收。
+离线测试覆盖：一次发送资格、一次点击、会话地址稳定后才记入账本、按原回执恢复、带哈希的限长读取、拒绝把不同仓库写进同一个账本、拒绝把仓库本身或指向仓库内部的链接当作证据目录、发送资格之前从菜单读取模型和强度、发送资格之后只复核可见强度并把模型限于刚才那次菜单证据、拒绝过期或跨任务证据、浏览器等待预算不包含账本状态读取、地址或页面读取在剩余预算用尽时停止，以及在点击结果不明、登录失效、标签页消失、等待超时、任务截止、身份不一致或正文变化之后拒绝重发。离线测试不会登录，也不会向 ChatGPT 发送任务，不能当作当前代码的在线验收。`task_pack.mjs` 与 `answer_result.mjs` 只由离线单测覆盖，没有联机验收；`certifies_current_tree` 不变。
 
 2026-10-19 在 Codex 内置浏览器中的那次运行是历史记录：325 字，正文 SHA-256 为 `a2acd364a60eb7e6593e895996825c526a495d2fb6d9d744876bfc2307950756`，运行时摘要为 `4fe06dd107a243e016728081e311e8056f6fa12b05ee83d80632ac27ebcb9784`。后来的源码树与该摘要不一致，因此它不能证明提交 `4399582ddc500216cf4a6034f273946f2b79208d`、其他宿主、其他界面语言或某个消费方项目已经验收。
 
