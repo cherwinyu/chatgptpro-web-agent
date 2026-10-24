@@ -71,7 +71,7 @@ const outcome = await online.offloadTask({
 
 ## 打包任务与读取回答
 
-一个实验性的 Cursor 页面通道脚本示例见 `examples/cursor_page_channel/README.zh-CN.md`（该示例仅在源码仓库中提供，不在精简运行时包里）。它需要对授权标签页临时开启 CSP 绕过，未在本仓库联机验收。
+一个实验性的 Cursor 页面通道脚本示例见 `examples/cursor_page_channel/README.zh-CN.md`（该示例仅在源码仓库中提供，不在精简运行时包里）。它需要对授权标签页临时开启 CSP 绕过。2026-10-25 在 Cursor IDE 浏览器的单个宿主上做过一次合成观察，不是正式验收；细节见下文「已验收和未验收」和该示例的 README。
 
 网页读不到你的仓库，所以它需要的材料必须全部放进 `taskFile`。回复是自由文本；约定一个结尾 JSON 块后，可以只读紧凑结果。这不等于省 token：打包、等待和复核仍有成本（`NOT_OBSERVABLE`）。
 
@@ -110,7 +110,7 @@ node adapters/generic/task_pack.mjs --spec pack.json --out task.txt [--root .]
 | `findings` | 数组，可为空；每项含字符串 `severity`（取 `high`、`medium` 或 `low`）、`title`、`evidence`、`suggestion` |
 | `confidence` | `high`、`medium` 或 `low` |
 
-只取最后一个完整块。最后一个块未闭合时，不回退到更早的块。解析失败返回 `parse_ok: false` 及错误码，如 `ANSWER_JSON_BLOCK_NOT_FOUND`、`ANSWER_JSON_BLOCK_UNCLOSED`、`ANSWER_JSON_INVALID`、`ANSWER_SCHEMA_INVALID`。由主代理自己阅读回复，不要求网页重做，也不重发。
+只取最后一个完整块。最后一个块未闭合时，不回退到更早的块。收集到的是页面渲染后的 `innerText`，其中代码围栏会被渲染掉，只留下单独一行 `JSON`。仅当正文里没有任何 ```` ```json ```` 开启围栏时，解析器才取最后一个去掉首尾空白后整行恰为 `JSON` 或 `json` 的行；该行之后直到结尾必须是单个 JSON 对象，否则返回 `ANSWER_JSON_INVALID`，不会往前回退到更早的行。`answerFormatText()` 仍然要求网页输出 ```` ```json ```` 块。解析失败返回 `parse_ok: false` 及错误码，如 `ANSWER_JSON_BLOCK_NOT_FOUND`、`ANSWER_JSON_BLOCK_UNCLOSED`、`ANSWER_JSON_INVALID`、`ANSWER_SCHEMA_INVALID`。由主代理自己阅读回复，不要求网页重做，也不重发。
 
 ```powershell
 node adapters/generic/answer_result.mjs --file reply.txt --kind review [--sha256 <hex>] [--out parsed.json]
@@ -157,10 +157,18 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 
 ## 已验收和未验收
 
-离线测试覆盖：一次发送资格、一次点击、会话地址稳定后才记入账本、按原回执恢复、带哈希的限长读取、拒绝把不同仓库写进同一个账本、拒绝把仓库本身或指向仓库内部的链接当作证据目录、发送资格之前从菜单读取模型和强度、发送资格之后只复核可见强度并把模型限于刚才那次菜单证据、拒绝过期或跨任务证据、浏览器等待预算不包含账本状态读取、地址或页面读取在剩余预算用尽时停止，以及在点击结果不明、登录失效、标签页消失、等待超时、任务截止、身份不一致或正文变化之后拒绝重发。离线测试不会登录，也不会向 ChatGPT 发送任务，不能当作当前代码的在线验收。`task_pack.mjs` 与 `answer_result.mjs` 只由离线单测覆盖，没有联机验收；`certifies_current_tree` 不变。
+离线测试覆盖：一次发送资格、一次点击、会话地址稳定后才记入账本、按原回执恢复、带哈希的限长读取、拒绝把不同仓库写进同一个账本、拒绝把仓库本身或指向仓库内部的链接当作证据目录、发送资格之前从菜单读取模型和强度、发送资格之后只复核可见强度并把模型限于刚才那次菜单证据、拒绝过期或跨任务证据、浏览器等待预算不包含账本状态读取、地址或页面读取在剩余预算用尽时停止，以及在点击结果不明、登录失效、标签页消失、等待超时、任务截止、身份不一致或正文变化之后拒绝重发。离线测试不会登录，也不会向 ChatGPT 发送任务，不能当作当前代码的在线验收。在下面 2026-10-25 的观察中，`task_pack.mjs` 在本地为 task2、task3 生成任务文件（`--pack-spec`），`answer_result.mjs` 解析了收集到的正文；这仍不是正式验收，`certifies_current_tree` 不变。
 
 2026-10-19 在 Codex 内置浏览器中的那次运行是历史记录：325 字，正文 SHA-256 为 `a2acd364a60eb7e6593e895996825c526a495d2fb6d9d744876bfc2307950756`，运行时摘要为 `4fe06dd107a243e016728081e311e8056f6fa12b05ee83d80632ac27ebcb9784`。后来的源码树与该摘要不一致，因此它不能证明提交 `4399582ddc500216cf4a6034f273946f2b79208d`、其他宿主、其他界面语言或某个消费方项目已经验收。
 
 2026-10-20 所有者在 Windows 的 Codex 内置浏览器、中文普通 Chat 上验收了该提交。运行时摘要是 `68510a984a3182f487ff953d7eeca495c6457615694e29f33f931dd016569e39`。发送前菜单显示 GPT-6 / Pro，关闭后的控件只显示 Pro（`preclaim_menu`，`closed_control_confirms_model` 为 false）。一次 `offloadTask` 点击了一次发送。第一次等待是 `HOST_TIMEOUT`，页面仍在生成。`recoverTask` 回收了 296 字，SHA-256 为 `e6e40e1bef2265a97e1d44a89395290132ae6af012b6f9233fdc82bea6b3d7e8`。宿主 JavaScript 运行时重启并重新绑定原标签页后，`recoverTask` 取回同一正文，账本发送次数仍为 1。本文记录的是这次交接，没有再执行浏览器流程。该提交的 Windows CI https://github.com/cherwinyu/chatgptpro-web-agent/actions/runs/39298630734 是离线检查。这次验收不覆盖后来的运行时摘要、其他宿主或消费方项目。消费方项目需要自己做合成在线验收。`certifies_current_tree` 保持为 false。
+
+2026-10-25，Director 在现场调试中（不是所有者交接）对 Cursor 页面通道示例做了一次单宿主合成观察，不是正式验收。宿主：Windows 上 Cursor IDE 内置浏览器，chatgpt.com 中文普通 Chat，已登录，不是 Pro 档。页面可见标签：模型菜单选中 `6`（菜单另有 `GPT-5.6 Sol`），强度 `6 极高`；同一标签页在重载前曾显示英文 `6 Extra High`。这些只是页面文字，不是后端模型身份。该宿主允许 `Page.setBypassCSP`；每次运行后都已改回关闭并重载页面，确认无残留 host 进程。材料是用本仓库一份公开文件构成的合成只读任务，不足 10KB。共三次尝试，真实发送 2 次：
+
+- task1：请求强度写成 `6 Extra High`，而页面显示 `6 极高`，在发送资格之前被 `REQUESTED_SELECTION_NOT_VISIBLE` 拒绝。没有点击发送，没有回执。
+- task2（`kind analysis`，代码为基线提交原样）：一次发送（`send_attempts` 1），`COLLECTED`，正文 511 字符，SHA-256 `cfbad8fb1a466132a3a0335bfbe55c9d529d7ecd65bd6acc5d9c0ad76f2fc24f`。原解析器返回 `parse_ok: false`，错误 `ANSWER_JSON_BLOCK_NOT_FOUND`：收集到的是渲染后的 `innerText`，以 `ChatGPT 说：` 开头，代码围栏变成单独一行 `JSON` 加对象。修复解析后，对同一正文离线重解析得到 `parse_ok: true`，SHA-256 一致。
+- task3（`kind review`，代码为基线提交加上当时未提交的渲染形态解析修复，即同一 PR 一并合入的 `adapters/generic/answer_result.mjs` 改动）：采集时运行时源摘要为 `e223ac0e1b0b0630019c31aa558984ed58eea3c4f1e8c747e1c7ab5b0dfe5dcf`（范围 `tools/pro_bridge`、`adapters/generic`）。一次发送（`send_attempts` 1），约 50 秒后 `COLLECTED`，`parse_ok: true`，`verdict: PASS`，0 条 finding，正文 179 字符，SHA-256 `6921f0d9bf82c987e7dba34a2b8ae7bce4f0416b8aacd0be8a0e0f24526687f4`。随后对同一回执执行 `--mode recover`（重新开启 CSP 绕过并再次注入 bootstrap），返回 `COLLECTED`，SHA-256 相同，`send_attempts` 仍为 1，没有重发。
+
+基线提交为 `a88201bfa6f92ff2939c8689058dbeab9d70170f`（main）。对应记录在能力清单（capability manifest）的键 `cursor_page_channel_observation` 下。边界：一个宿主、一个界面语言、非 Pro 档、两次合成任务；不是正式验收，`certifies_current_tree` 为 false；不证明节省 token 或订阅额度，也不证明后端模型身份。会话 URL、回复正文和 bootstrap 凭据只留在本地，不入库。
 
 尚未验收：token 或订阅额度节省、后端模型身份、费用归属于谁、无人值守的生产使用、通用浏览器驱动、凭据保管、把聊天回复变成 GitHub 写入，以及把其他宿主或消费方项目当成已被这次运行验收。

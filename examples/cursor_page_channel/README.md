@@ -3,7 +3,8 @@
 [简体中文](README.zh-CN.md) · [Caller contract](../../docs/INTEGRATION.md)
 
 This is a text-only script example for a caller that can operate an authorized
-Cursor browser tab through CDP. **It has not been accepted online in this repository.**
+Cursor browser tab through CDP. **It was observed once on a single host (see
+"Live observation"); that is not a formal acceptance.**
 Offline tests are not CUA or ChatGPT acceptance. No token savings are claimed.
 
 The Node host supplies a compatible `tab` to the existing `online_host.mjs`.
@@ -144,5 +145,36 @@ cleanup reminder is not evidence that CSP was restored. A failed/stopped page
 marker permits a new run, but never authorizes another offload of the original task.
 
 The offline suite is `node --test tests/audit/cursor_page_channel.test.mjs`.
-Real CSP/PNA behavior, Cursor CDP, live UI compatibility and online acceptance
-remain unverified in this repository.
+One host has been observed live (next section): the Cursor IDE browser allowed
+`Page.setBypassCSP`, the bootstrap injection and collection worked, and recovery
+returned the same body without resending. On that host, the page's bootstrap and
+relay requests to `127.0.0.1` succeeded. Other hosts, other UI languages, the
+Pro tier, Private Network Access (PNA) behavior in other browsers or versions,
+and formal acceptance remain unverified.
+
+## Live observation
+
+On 2026-10-25 a Director live-debug session ran this channel on one host: the
+Cursor IDE built-in browser on Windows, Chinese ordinary Chat on chatgpt.com,
+logged in, not the Pro tier, with `--ui-profile chinese-ordinary-chat`. CSP bypass
+was allowed, and after every run it was disabled again and the page reloaded.
+Three attempts, two real sends, synthetic read-only material: one refused before
+send (`REQUESTED_SELECTION_NOT_VISIBLE`), one `COLLECTED` whose original parse
+failed on the rendered form (fixed in `answer_result.mjs`), and one `COLLECTED`
+with `parse_ok: true`, whose `--mode recover` returned the same SHA-256 with
+`send_attempts` still 1. The full record is in
+[Accepted and not accepted](../../docs/INTEGRATION.md#accepted-and-not-accepted).
+It is a single-host observation, not a formal acceptance. It shows no token
+savings and no backend model identity.
+
+Operational notes from that run:
+
+- The page's label language can change after a reload: the same tab showed
+  `6 Extra High` and then `6 极高`. Read the labels on the freshly reloaded page
+  before starting the host, and pass `--model` / `--effort` exactly as shown.
+  Otherwise the host refuses before send with `REQUESTED_SELECTION_NOT_VISIBLE`;
+  that refusal does not consume a send.
+- The collected text is rendered text. A leading `ChatGPT 说：` and a line
+  containing only `JSON` (the rendered code fence) are normal; the parser handles them.
+- Recovery also needs CSP bypass re-enabled and the bootstrap injected again.
+  Afterwards disable CSP bypass and reload, as in the main procedure.

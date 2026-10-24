@@ -67,6 +67,101 @@ test('closing fence with suffix is not a closing fence', () => {
   assert.equal(parseAnswer(block(value(), '```', '```comment')).errors[0], 'ANSWER_JSON_BLOCK_UNCLOSED');
 });
 
+test('rendered JSON accepts UI prefix, Chinese content, CRLF and whitespace', () => {
+  const data = value({ verdict: 'ANSWER', findings: [
+    { severity: 'low', title: '合成标题', evidence: '合成证据', suggestion: '合成建议' },
+  ] });
+  for (const label of ['JSON', 'json']) {
+    const text = `ChatGPT 说：\r\n \t${label} \t\r\n${JSON.stringify(data, null, 2).replaceAll('\n', '\r\n')}\r\n \t`;
+    assert.deepEqual(parseAnswer(text, { kind: 'analysis' }), { parse_ok: true, ...data });
+  }
+});
+
+test('rendered JSON rejects trailing prose and multiple objects', () => {
+  for (const suffix of ['\n后续文字', '\n{}']) {
+    assert.deepEqual(parseAnswer('JSON\n' + JSON.stringify(value()) + suffix).errors, ['ANSWER_JSON_INVALID']);
+  }
+});
+
+test('rendered JSON rejects arrays and other non-objects', () => {
+  for (const data of [[], [value()], null, 'text', 1, true]) {
+    assert.deepEqual(parseAnswer('JSON\n' + JSON.stringify(data)).errors, ['ANSWER_JSON_INVALID']);
+  }
+});
+
+test('last rendered label never falls back to earlier valid objects', () => {
+  const earlier = 'JSON\n' + JSON.stringify(value());
+  for (const suffix of ['json\n{broken}', 'JSON\n', 'JSON\n[]', 'JSON\nprose\n' + JSON.stringify(value())]) {
+    assert.deepEqual(parseAnswer(earlier + '\n' + suffix).errors, ['ANSWER_JSON_INVALID']);
+  }
+  assert.equal(parseAnswer(earlier + '\njson\n' + JSON.stringify(value({ summary: 'last' }))).summary, 'last');
+});
+
+test('JSON fences take priority over rendered labels in either order', () => {
+  const rendered = 'JSON\n' + JSON.stringify(value({ summary: 'rendered' }));
+  const fenced = block(value({ summary: 'fenced' }));
+  for (const text of [rendered + '\n' + fenced, fenced + '\n' + rendered]) {
+    assert.equal(parseAnswer(text).summary, 'fenced');
+  }
+  assert.deepEqual(parseAnswer('```json\n{broken}\n```\n' + rendered).errors, ['ANSWER_JSON_INVALID']);
+});
+
+test('unclosed last JSON fence takes priority over rendered labels', () => {
+  const rendered = 'JSON\n' + JSON.stringify(value());
+  for (const text of [rendered + '\n```json\n{}', block() + '\n```json\n' + rendered]) {
+    assert.deepEqual(parseAnswer(text).errors, ['ANSWER_JSON_BLOCK_UNCLOSED']);
+  }
+});
+
+test('rendered language labels must occupy a whole line with exact case', () => {
+  for (const prefix of ['some JSON text', 'JSON suffix', 'prefix json', 'Json', 'JSON:', '']) {
+    assert.deepEqual(parseAnswer(prefix + '\n' + JSON.stringify(value())).errors, ['ANSWER_JSON_BLOCK_NOT_FOUND']);
+  }
+});
+
+test('rendered objects retain schema validation and field filtering', () => {
+  for (const key of Object.keys(value())) {
+    const data = value(); delete data[key];
+    assert.deepEqual(parseAnswer('JSON\n' + JSON.stringify(data)).errors, ['ANSWER_SCHEMA_INVALID']);
+  }
+  assert.deepEqual(parseAnswer('JSON\n' + JSON.stringify(value()), { kind: 'analysis' }).errors, ['ANSWER_SCHEMA_INVALID']);
+  const finding = { severity: 'low', title: '合成标题', evidence: '合成证据', suggestion: '合成建议' };
+  const text = 'JSON\n' + JSON.stringify(value({ findings: [{ ...finding, extra: true }], review_approved: true }));
+  assert.deepEqual(parseAnswer(text), { parse_ok: true, ...value({ findings: [finding] }) });
+});
+
+test('summarizeAnswer compacts rendered answers with unchanged metadata and limits', () => {
+  const findings = Array.from({ length: 8 }, () => ({ severity: 'low', title: '合成标题', evidence: '合成证据', suggestion: '合成建议' }));
+  const text = 'ChatGPT 说：\r\nJSON\r\n' + JSON.stringify(value({ findings, review_approved: true }));
+  const result = summarizeAnswer({ text, sha256: hash(text), characters: text.length }, { maxCharacters: 400 });
+  assert.equal(result.parse_ok, true);
+  assert.equal(result.summary, '合成结论');
+  assert.equal(result.findings_count, 8);
+  assert.ok(result.findings.length <= 5);
+  for (const finding of result.findings) assert.deepEqual(Object.keys(finding), ['severity', 'title']);
+  assert.equal(result.answer_sha256, hash(text));
+  assert.equal(result.answer_chars, text.length);
+  assert.equal(result.review_approved, false);
+  assert.ok(JSON.stringify(result).length <= 400);
+});
+
+test('CLI emits compact rendered answers and preserves full filtered output', t => {
+  const dir = fixture(t);
+  const finding = { severity: 'low', title: '合成标题', evidence: '合成证据', suggestion: '合成建议' };
+  const data = value({ verdict: 'ANSWER', findings: [finding] });
+  const text = 'ChatGPT 说：\r\nJSON\r\n' + JSON.stringify({ ...data, review_approved: true });
+  writeFileSync(join(dir, 'reply.txt'), text);
+  const result = run(dir, ['--file', 'reply.txt', '--kind', 'analysis', '--sha256', hash(text), '--max-characters', '400', '--out', 'parsed.json']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, '');
+  assert.equal(result.stdout.trim().split('\n').length, 1);
+  assert.ok(result.stdout.trim().length <= 400);
+  const metadata = { answer_sha256: hash(text), answer_chars: text.length, review_approved: false };
+  assert.deepEqual(JSON.parse(result.stdout), { parse_ok: true, ...data,
+    findings_count: 1, findings: [{ severity: 'low', title: '合成标题' }], ...metadata });
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'parsed.json'), 'utf8')), { parse_ok: true, ...data, ...metadata });
+});
+
 for (const [name, text, error] of [
   ['missing', 'ordinary text', 'ANSWER_JSON_BLOCK_NOT_FOUND'],
   ['invalid JSON', '```json\n{broken}\n```', 'ANSWER_JSON_INVALID'],

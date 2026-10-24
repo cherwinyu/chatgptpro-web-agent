@@ -106,5 +106,95 @@
     ],
     "documentation": "docs/ONLINE_WORKFLOW.md"
   },
+  "cursor_page_channel_observation": {
+    "status": "SINGLE_HOST_SYNTHETIC_OBSERVATION",
+    "formal_acceptance": false,
+    "certifies_current_tree": false,
+    "date": "2026-10-25",
+    "entrypoint": "examples/cursor_page_channel/cursor_page_host.mjs",
+    "page_agent": "examples/cursor_page_channel/cursor_page_agent.mjs",
+    "ui_profile": "chinese-ordinary-chat",
+    "delivery": "browser_response",
+    "host": "Windows Cursor IDE in-app browser, Chinese ordinary Chat on chatgpt.com, logged in",
+    "evidence_origin": "director_live_debug",
+    "csp_bypass": {
+      "method": "Page.setBypassCSP",
+      "permitted_by_host": true,
+      "cleanup_executed": true,
+      "cleanup": "After each run, Page.setBypassCSP was executed with enabled set to false and the page was reloaded; it was confirmed that no host process remained."
+    },
+    "task_packing": "task2 and task3 used --pack-spec; the host called adapters/generic/task_pack.mjs pack() locally to write the task file",
+    "loopback_access": {
+      "page_to_loopback_fetch_succeeded": true,
+      "scope": "Observed on this host only; private network access behavior in other browsers or versions is not verified"
+    },
+    "base_commit": "a88201bfa6f92ff2939c8689058dbeab9d70170f",
+    "runtime_source_digest_at_collection": "e223ac0e1b0b0630019c31aa558984ed58eea3c4f1e8c747e1c7ab5b0dfe5dcf",
+    "runtime_roots": ["tools/pro_bridge", "adapters/generic"],
+    "runtime_source_scope": "Task3 working tree: base commit plus the uncommitted rendered-text parsing fix in adapters/generic/answer_result.mjs",
+    "selection": {
+      "visible_model_label": "6",
+      "visible_effort_label": "6 极高",
+      "pro_tier": false,
+      "label_meaning": "visible page labels, not backend model identity",
+      "before_reload": "The same tab had displayed the English effort label 6 Extra High before reload"
+    },
+    "runs": [
+      {
+        "task": "task1",
+        "kind": null,
+        "outcome": "Rejected before send eligibility; no send click and no receipt",
+        "send_attempts": 0,
+        "result_characters": null,
+        "result_sha256": null,
+        "parse_ok_at_collection": null,
+        "error_code": "REQUESTED_SELECTION_NOT_VISIBLE",
+        "selection_mismatch": "Requested 6 Extra High while the page displayed 6 极高"
+      },
+      {
+        "task": "task2",
+        "kind": "analysis",
+        "runtime_source_scope": "Unmodified base commit",
+        "outcome": "COLLECTED",
+        "send_attempts": 1,
+        "result_characters": 511,
+        "result_sha256": "cfbad8fb1a466132a3a0335bfbe55c9d529d7ecd65bd6acc5d9c0ad76f2fc24f",
+        "parse_ok_at_collection": false,
+        "error_code": "ANSWER_JSON_BLOCK_NOT_FOUND",
+        "parse_ok_after_fix_offline": true,
+        "offline_reparse": "The same rendered innerText body parsed successfully after the fix with an unchanged SHA-256"
+      },
+      {
+        "task": "task3",
+        "kind": "review",
+        "outcome": "COLLECTED",
+        "send_attempts": 1,
+        "result_characters": 179,
+        "result_sha256": "6921f0d9bf82c987e7dba34a2b8ae7bce4f0416b8aacd0be8a0e0f24526687f4",
+        "parse_ok_at_collection": true,
+        "verdict": "PASS",
+        "findings_count": 0,
+        "recover_same_receipt": {
+          "outcome": "COLLECTED",
+          "result_sha256": "6921f0d9bf82c987e7dba34a2b8ae7bce4f0416b8aacd0be8a0e0f24526687f4",
+          "send_attempts": 1,
+          "resent": false
+        }
+      }
+    ],
+    "real_sends": 2,
+    "limitations": [
+      "One host and one interface language",
+      "Non-Pro tier; two synthetic read-only tasks, not a production workload",
+      "Not formal acceptance and does not certify the current tree",
+      "Visible labels are not backend model identity",
+      "No measured token or subscription quota saving",
+      "Does not cover other hosts, locales, or consumer projects",
+      "Rendered innerText can replace code fences with a standalone JSON label and include a speaker prefix; parsing must account for that rendered form",
+      "Visible effort labels can change language after reload; requested selection must match the currently visible label",
+      "Private network access behavior was observed only on this host"
+    ],
+    "documentation": "examples/cursor_page_channel/README.md"
+  },
   "model_or_fee_claim": "NOT_OBSERVABLE"
 }
