@@ -2,6 +2,7 @@
  * PACK_BUDGET_EXCEEDED, PACK_PATH_REFUSED, PACK_LINK_REFUSED,
  * PACK_SOURCE_NOT_FILE, PACK_READ_FAILED, PACK_BINARY_REFUSED,
  * PACK_HEADING_NOT_FOUND, PACK_LINES_OUT_OF_RANGE, PACK_GIT_FAILED,
+ * PACK_DIFF_UNTRACKED, PACK_DIFF_EMPTY,
  * PACK_ARGUMENTS_INVALID, PACK_OUTPUT_EXISTS, PACK_WRITE_FAILED, PACK_INTERNAL_ERROR.
  */
 import { createHash } from 'node:crypto';
@@ -126,6 +127,20 @@ function diffMaterial(root, diff) {
   const common = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--ignore-submodules=none'];
   // Raw records expose modes even when Windows checks out a link as a plain file.
   const records = new TextDecoder('utf-8', { fatal: true });
+  let untracked;
+  try { untracked = records.decode(git(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths])).split('\0'); }
+  catch (error) {
+    if (error.message.startsWith('PACK_')) throw error;
+    fail('PACK_PATH_REFUSED', 'git paths must be UTF-8');
+  }
+  if (untracked.pop() !== '') fail('PACK_GIT_FAILED', 'invalid git records');
+  for (const path of untracked) {
+    if (checkedPath(root, path).path !== path) fail('PACK_PATH_REFUSED', 'ambiguous git path');
+  }
+  if (untracked.length) {
+    fail('PACK_DIFF_UNTRACKED', `untracked files in diff.paths: ${untracked.slice(0, 20).join(', ')}`
+      + (untracked.length > 20 ? ` (${untracked.length} total)` : '') + '; run git add first or use sources');
+  }
   let entries;
   try { entries = records.decode(git(root, [...common, '--raw', '--no-abbrev', '-z', base, '--', ...paths])).split('\0'); }
   catch (error) {
@@ -152,8 +167,9 @@ function diffMaterial(root, diff) {
       if (!/^(100644|100755) [a-f0-9]+ 0\t/.test(item)) fail('PACK_LINK_REFUSED', 'unsafe or unmerged index mode');
     }
   }
-  return { path: `diff:${paths.join(',')}`, selector: `base:${base}`,
-    text: decode(git(root, [...common, '--no-relative', base, '--', ...paths])) };
+  const text = decode(git(root, [...common, '--no-relative', base, '--', ...paths]));
+  if (!text) fail('PACK_DIFF_EMPTY', 'base and worktree have no differences in diff.paths; base must be a commit before the changes');
+  return { path: `diff:${paths.join(',')}`, selector: `base:${base}`, text };
 }
 
 export function pack(spec, { repoRoot = process.cwd() } = {}) {

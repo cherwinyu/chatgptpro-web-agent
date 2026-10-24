@@ -71,6 +71,8 @@ On `outcome.status === 'COLLECTED'`, review `outcome.text`. `outcome.truncated` 
 
 ## Packing the task and reading the answer
 
+An experimental Cursor page-channel script example is in `examples/cursor_page_channel/README.md` (provided only in the source repository, not in the slim runtime package). It needs a temporary CSP bypass on the authorized tab and has not been accepted online in this repository.
+
 The web page cannot read your repository, so everything it needs must be inside `taskFile`. The reply is free text; agreeing on a trailing JSON block lets you read a compact result. This does not claim token savings: packing, waiting and review still cost something (`NOT_OBSERVABLE`).
 
 `adapters/generic/task_pack.mjs` turns a `pack.json` into `task.txt`. Run it from the repository root; stdout is only the manifest (`out`, `bytes`, `sha256`, per-source `path`/`selector`/`bytes`/`sha256`).
@@ -93,7 +95,11 @@ node adapters/generic/task_pack.mjs --spec pack.json --out task.txt [--root .]
   "sources": [{ "path": "docs/example.md", "heading": "## Usage" }], "max_bytes": 60000 }
 ```
 
-Refused: paths that are absolute or leave `--root`, symbolic links, `.git`, `.env*`, key or secret-like file names, binary or non-UTF-8 files, and an `--out` that already exists. Over budget throws `PACK_BUDGET_EXCEEDED` and never truncates; narrow the sources instead. Errors go to stderr with exit code 2: `PACK_SPEC_INVALID`, `PACK_BUDGET_INVALID`, `PACK_BUDGET_EXCEEDED`, `PACK_PATH_REFUSED`, `PACK_LINK_REFUSED`, `PACK_SOURCE_NOT_FILE`, `PACK_BINARY_REFUSED`, `PACK_HEADING_NOT_FOUND`, `PACK_LINES_OUT_OF_RANGE`, `PACK_GIT_FAILED`, `PACK_OUTPUT_EXISTS`. The generated prompt text is in Chinese and ends with the answer format below.
+Refused: paths that are absolute or leave `--root`, symbolic links, `.git`, `.env*`, key or secret-like file names, binary or non-UTF-8 files, and an `--out` that already exists. Over budget throws `PACK_BUDGET_EXCEEDED` and never truncates; narrow the sources instead. Keep the task file to about 10 KB where you can. The default `max_bytes` stays 150000. Another consumer observed on its own page channel that larger tasks (roughly 25 KB and up) stall; this repository's `offloadTask` fill path has not measured that threshold.
+
+`diff` is refused in two more cases. `PACK_DIFF_EMPTY`: `base` and the worktree do not differ on those paths. `base` must be a commit from before the changes; for changes already committed, `HEAD` gives an empty diff. `PACK_DIFF_UNTRACKED`: `paths` contains untracked files that are not ignored; run `git add` on them first, or pass them as `sources`.
+
+Errors go to stderr with exit code 2: `PACK_SPEC_INVALID`, `PACK_BUDGET_INVALID`, `PACK_BUDGET_EXCEEDED`, `PACK_PATH_REFUSED`, `PACK_LINK_REFUSED`, `PACK_SOURCE_NOT_FILE`, `PACK_BINARY_REFUSED`, `PACK_HEADING_NOT_FOUND`, `PACK_LINES_OUT_OF_RANGE`, `PACK_GIT_FAILED`, `PACK_DIFF_EMPTY`, `PACK_DIFF_UNTRACKED`, `PACK_OUTPUT_EXISTS`, plus `PACK_READ_FAILED` (a source file or path cannot be inspected or read), `PACK_ARGUMENTS_INVALID` (CLI options are not unique name-value pairs, or `--spec`/`--out` is missing), `PACK_WRITE_FAILED` (the output parent or `repoRoot` does not exist, or the output cannot be created), `PACK_INTERNAL_ERROR` (an unexpected failure; details are withheld). The generated prompt text is in Chinese and ends with the answer format below.
 
 `adapters/generic/answer_result.mjs` defines that format: the reply ends with one ```` ```json ```` block with all fields required.
 

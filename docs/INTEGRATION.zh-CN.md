@@ -71,6 +71,8 @@ const outcome = await online.offloadTask({
 
 ## 打包任务与读取回答
 
+一个实验性的 Cursor 页面通道脚本示例见 `examples/cursor_page_channel/README.zh-CN.md`（该示例仅在源码仓库中提供，不在精简运行时包里）。它需要对授权标签页临时开启 CSP 绕过，未在本仓库联机验收。
+
 网页读不到你的仓库，所以它需要的材料必须全部放进 `taskFile`。回复是自由文本；约定一个结尾 JSON 块后，可以只读紧凑结果。这不等于省 token：打包、等待和复核仍有成本（`NOT_OBSERVABLE`）。
 
 `adapters/generic/task_pack.mjs` 把 `pack.json` 打包成 `task.txt`。在仓库根目录运行，stdout 只有 manifest（`out`、`bytes`、`sha256`，以及每个来源的 `path`/`selector`/`bytes`/`sha256`）。
@@ -93,7 +95,11 @@ node adapters/generic/task_pack.mjs --spec pack.json --out task.txt [--root .]
   "sources": [{ "path": "docs/example.md", "heading": "## Usage" }], "max_bytes": 60000 }
 ```
 
-拒绝：绝对路径或超出 `--root` 的路径、符号链接、`.git`、`.env*`、密钥或机密类文件名、二进制与非 UTF-8 文件、已存在的 `--out`。超出预算抛 `PACK_BUDGET_EXCEEDED`，**不截断**，请缩小来源。错误写到 stderr，退出码 2：`PACK_SPEC_INVALID`、`PACK_BUDGET_INVALID`、`PACK_BUDGET_EXCEEDED`、`PACK_PATH_REFUSED`、`PACK_LINK_REFUSED`、`PACK_SOURCE_NOT_FILE`、`PACK_BINARY_REFUSED`、`PACK_HEADING_NOT_FOUND`、`PACK_LINES_OUT_OF_RANGE`、`PACK_GIT_FAILED`、`PACK_OUTPUT_EXISTS`。生成的提示词为中文，末尾附下面的回答格式。
+拒绝：绝对路径或超出 `--root` 的路径、符号链接、`.git`、`.env*`、密钥或机密类文件名、二进制与非 UTF-8 文件、已存在的 `--out`。超出预算抛 `PACK_BUDGET_EXCEEDED`，**不截断**，请缩小来源。任务文件建议控制在约 10KB 以内，默认 `max_bytes` 仍是 150000。另一使用方在其页面通道上观察到较大任务（约 25KB 以上）会卡住；本仓库的 `offloadTask` 填充路径未测量过这个阈值。
+
+`diff` 另有两种拒绝。`PACK_DIFF_EMPTY`：`base` 与工作树在这些路径上无差异；`base` 要取改动之前的提交，对已提交的改动用 `HEAD` 会得到空 diff。`PACK_DIFF_UNTRACKED`：`paths` 下有未被忽略的未跟踪文件；先对它们 `git add`，或改用 `sources`。
+
+错误写到 stderr，退出码 2：`PACK_SPEC_INVALID`、`PACK_BUDGET_INVALID`、`PACK_BUDGET_EXCEEDED`、`PACK_PATH_REFUSED`、`PACK_LINK_REFUSED`、`PACK_SOURCE_NOT_FILE`、`PACK_BINARY_REFUSED`、`PACK_HEADING_NOT_FOUND`、`PACK_LINES_OUT_OF_RANGE`、`PACK_GIT_FAILED`、`PACK_DIFF_EMPTY`、`PACK_DIFF_UNTRACKED`、`PACK_OUTPUT_EXISTS`，另有 `PACK_READ_FAILED`（无法检查或读取来源文件或路径）、`PACK_ARGUMENTS_INVALID`（命令行选项不是唯一的“名称-值”对，或缺少 `--spec`/`--out`）、`PACK_WRITE_FAILED`（输出父目录或 `repoRoot` 不存在，或无法创建输出）、`PACK_INTERNAL_ERROR`（意外失败，不返回细节）。生成的提示词为中文，末尾附下面的回答格式。
 
 `adapters/generic/answer_result.mjs` 规定该格式：回复最后是一个 ```` ```json ```` 块，所有字段必填。
 
