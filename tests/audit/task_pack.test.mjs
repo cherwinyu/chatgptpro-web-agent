@@ -279,6 +279,83 @@ test('diff base validation rejects options, controls and invalid revisions', t =
   assert.throws(() => pack(diffSpec('no-such-revision'), { repoRoot }), /^Error: PACK_GIT_FAILED: git operation failed$/);
 });
 
+test('diff refuses HEAD with no changes', t => {
+  const repoRoot = repository(t); snapshot(repoRoot);
+  assert.throws(() => pack(diffSpec('HEAD'), { repoRoot }),
+    /PACK_DIFF_EMPTY: base and worktree have no differences in diff.paths; base must be a commit before the changes/);
+});
+
+test('diff refuses HEAD after changes have already been committed', t => {
+  const repoRoot = repository(t), base = snapshot(repoRoot);
+  writeFileSync(join(repoRoot, 'source.txt'), 'committed synthetic change\n');
+  snapshot(repoRoot);
+  assert.throws(() => pack(diffSpec('HEAD'), { repoRoot }), /PACK_DIFF_EMPTY/);
+  assert.ok(pack(diffSpec(base), { repoRoot }).text.includes('+committed synthetic change'));
+});
+
+test('diff refuses untracked files before checking for an empty diff', t => {
+  const repoRoot = repository(t); snapshot(repoRoot);
+  mkdirSync(join(repoRoot, 'folder'));
+  writeFileSync(join(repoRoot, 'folder', 'new file.txt'), 'synthetic addition\n');
+  for (const paths of [['folder'], ['folder/new file.txt']]) {
+    assert.throws(() => pack(diffSpec('HEAD', paths), { repoRoot }),
+      /^Error: PACK_DIFF_UNTRACKED: untracked files in diff.paths: folder\/new file.txt; run git add first or use sources$/);
+  }
+});
+
+test('diff ignores untracked files excluded by gitignore', t => {
+  const repoRoot = repository(t);
+  mkdirSync(join(repoRoot, 'folder'));
+  writeFileSync(join(repoRoot, '.gitignore'), 'folder/ignored.txt\n');
+  writeFileSync(join(repoRoot, 'folder', 'tracked.txt'), 'before\n');
+  const base = snapshot(repoRoot);
+  writeFileSync(join(repoRoot, 'folder', 'tracked.txt'), 'after\n');
+  writeFileSync(join(repoRoot, 'folder', 'ignored.txt'), 'ignored synthetic\n');
+  const { text } = pack(diffSpec(base, ['folder']), { repoRoot });
+  assert.ok(text.includes('+after'));
+  assert.ok(!text.includes('ignored synthetic'));
+});
+
+test('diff includes a new file after git add', t => {
+  const repoRoot = repository(t), base = snapshot(repoRoot);
+  writeFileSync(join(repoRoot, 'new.txt'), 'staged synthetic addition\n');
+  git(repoRoot, ['add', 'new.txt']);
+  assert.ok(pack(diffSpec(base, ['new.txt']), { repoRoot }).text.includes('+staged synthetic addition'));
+});
+
+test('diff ignores untracked files outside the selected paths', t => {
+  const repoRoot = repository(t), base = snapshot(repoRoot);
+  writeFileSync(join(repoRoot, 'outside.txt'), 'outside synthetic\n');
+  writeFileSync(join(repoRoot, 'source.txt'), 'selected synthetic\n');
+  assert.ok(pack(diffSpec(base), { repoRoot }).text.includes('+selected synthetic'));
+});
+
+test('diff limits untracked diagnostics to 20 paths and reports the total', t => {
+  const repoRoot = repository(t), base = snapshot(repoRoot);
+  mkdirSync(join(repoRoot, 'folder'));
+  for (let i = 0; i < 21; i++) {
+    writeFileSync(join(repoRoot, 'folder', `file${String(i).padStart(2, '0')}.txt`), 'synthetic\n');
+  }
+  assert.throws(() => pack(diffSpec(base, ['folder']), { repoRoot }), error => {
+    assert.match(error.message, /^PACK_DIFF_UNTRACKED:/);
+    assert.equal((error.message.match(/folder\/file\d{2}\.txt/g) ?? []).length, 20);
+    assert.ok(error.message.includes('folder/file19.txt'));
+    assert.ok(!error.message.includes('folder/file20.txt'));
+    assert.ok(error.message.includes('(21 total)'));
+    return true;
+  });
+  writeFileSync(join(repoRoot, 'folder', 'zz-secret.txt'), 'synthetic\n');
+  assert.throws(() => pack(diffSpec(base, ['folder']), { repoRoot }), /PACK_PATH_REFUSED/);
+});
+
+test('diff checks untracked paths for links during directory expansion', t => {
+  const repoRoot = repository(t), base = snapshot(repoRoot);
+  mkdirSync(join(repoRoot, 'folder'));
+  try { symlinkSync(join(repoRoot, 'source.txt'), join(repoRoot, 'folder', 'alias.txt'), 'file'); }
+  catch (error) { t.skip(`file symlink unavailable: ${error.code}`); return; }
+  assert.throws(() => pack(diffSpec(base, ['folder']), { repoRoot }), /PACK_LINK_REFUSED/);
+});
+
 test('diff rejects escaping and sensitive paths, including directory expansion', t => {
   const repoRoot = repository(t);
   mkdirSync(join(repoRoot, 'folder')); writeFileSync(join(repoRoot, 'folder', '.env'), 'synthetic');
@@ -350,14 +427,18 @@ test('diff strips inherited GIT variables and disables external diff and textcon
 test('literal pathspecs do not expand wildcard-looking input', t => {
   const repoRoot = repository(t), base = snapshot(repoRoot);
   writeFileSync(join(repoRoot, 'source.txt'), 'updated');
+  writeFileSync(join(repoRoot, '[s]ource.txt'), 'literal synthetic\n');
+  assert.throws(() => pack(diffSpec(base, ['[s]ource.txt']), { repoRoot }), /PACK_DIFF_UNTRACKED/);
+  git(repoRoot, ['--literal-pathspecs', 'add', '--', '[s]ource.txt']);
   const result = pack(diffSpec(base, ['[s]ource.txt']), { repoRoot });
-  assert.equal(result.manifest.sources[0].bytes, 0);
+  assert.ok(result.text.includes('+literal synthetic'));
+  assert.ok(!result.text.includes('+updated'));
   assert.throws(() => pack(diffSpec(base, [':(glob)*']), { repoRoot }), /PACK_PATH_REFUSED/);
 });
 
-test('no-change diffs are valid and nested worktree roots are refused', t => {
+test('no-change diffs and nested worktree roots are refused', t => {
   const repoRoot = repository(t), base = snapshot(repoRoot);
-  assert.equal(pack(diffSpec(base), { repoRoot }).manifest.sources[0].bytes, 0);
+  assert.throws(() => pack(diffSpec(base), { repoRoot }), /PACK_DIFF_EMPTY/);
   mkdirSync(join(repoRoot, 'child'));
   assert.throws(() => pack(diffSpec(base), { repoRoot: join(repoRoot, 'child') }), /PACK_GIT_FAILED/);
 });
