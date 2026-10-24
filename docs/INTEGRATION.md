@@ -71,7 +71,7 @@ On `outcome.status === 'COLLECTED'`, review `outcome.text`. `outcome.truncated` 
 
 ## Packing the task and reading the answer
 
-An experimental Cursor page-channel script example is in [examples/cursor_page_channel/README.md](../examples/cursor_page_channel/README.md). It needs a temporary CSP bypass on the authorized tab and has not been accepted online in this repository.
+An experimental Cursor page-channel script example is in `examples/cursor_page_channel/README.md` (provided only in the source repository, not in the slim runtime package). It needs a temporary CSP bypass on the authorized tab and has not been accepted online in this repository.
 
 The web page cannot read your repository, so everything it needs must be inside `taskFile`. The reply is free text; agreeing on a trailing JSON block lets you read a compact result. This does not claim token savings: packing, waiting and review still cost something (`NOT_OBSERVABLE`).
 

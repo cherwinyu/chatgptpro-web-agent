@@ -71,7 +71,7 @@ const outcome = await online.offloadTask({
 
 ## 打包任务与读取回答
 
-一个实验性的 Cursor 页面通道脚本示例见 [examples/cursor_page_channel/README.zh-CN.md](../examples/cursor_page_channel/README.zh-CN.md)。它需要对授权标签页临时开启 CSP 绕过，未在本仓库联机验收。
+一个实验性的 Cursor 页面通道脚本示例见 `examples/cursor_page_channel/README.zh-CN.md`（该示例仅在源码仓库中提供，不在精简运行时包里）。它需要对授权标签页临时开启 CSP 绕过，未在本仓库联机验收。
 
 网页读不到你的仓库，所以它需要的材料必须全部放进 `taskFile`。回复是自由文本；约定一个结尾 JSON 块后，可以只读紧凑结果。这不等于省 token：打包、等待和复核仍有成本（`NOT_OBSERVABLE`）。
 
