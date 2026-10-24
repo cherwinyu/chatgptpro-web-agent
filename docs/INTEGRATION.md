@@ -17,7 +17,9 @@ No model API key is stored here. Do not put credentials, cookies or unauthorized
 
 Clone or extract the commit you intend to call. The published pre-release tag `v0.1.0-rc.3` is commit `3051279bd6533d27a7675f8de922a326008cadf5`. That tag and its Release assets are an earlier snapshot. That pre-release does not include the online offload: `offloadTask`, `adapters/generic/online_host.mjs`, `adapters/generic/local_transport.mjs`, and this guide's online page are not in those assets. Do not install `v0.1.0-rc.3` and expect the calls on this page.
 
-No formal versioned Release includes this offload. This page does not create a tag. A candidate package name is not a published tag, a formal Release, or online acceptance. The 2026-10-20 acceptance of commit `4399582ddc500216cf4a6034f273946f2b79208d` does not transfer to a later `runtime_source_digest`.
+The online offload ships in Pre-releases from `v0.1.0-rc.4` onward; the current one is [`v0.1.0-rc.6`](https://github.com/cherwinyu/chatgptpro-web-agent/releases/tag/v0.1.0-rc.6). Install its Slim Runtime ZIP, check the ZIP SHA-256 on the Release page, then run `identify` in the next section with the Manifest Pin from the Release page. You can also clone or extract the commit you intend to call.
+
+Every version is a Pre-release, and no formal stable Release includes this offload. This page does not create a tag. A candidate package name is not a published tag, a formal Release, or online acceptance. The 2026-10-20 acceptance of commit `4399582ddc500216cf4a6034f273946f2b79208d` does not transfer to a later `runtime_source_digest`.
 
 ## Confirm the installed runtime matches that commit
 
