@@ -28,6 +28,10 @@ docs/RESEARCH_USE.zh-CN.md
 docs/languages.json
 docs/legal/LICENSE
 docs/legal/LICENSE_SCOPE.md
+examples/cursor_page_channel/README.md
+examples/cursor_page_channel/README.zh-CN.md
+examples/cursor_page_channel/cursor_page_agent.mjs
+examples/cursor_page_channel/cursor_page_host.mjs
 schemas/browser-observation.example.json
 schemas/browser-target.example.json
 schemas/cli-receipt.example.json
@@ -40,6 +44,7 @@ scripts/commit_identity_gate.py
 scripts/publication_audit.py
 tests/audit/answer_result.test.mjs
 tests/audit/browser_host.test.mjs
+tests/audit/cursor_page_channel.test.mjs
 tests/audit/online_host.test.mjs
 tests/audit/task_pack.test.mjs
 tests/audit/test_browser_delivery.py

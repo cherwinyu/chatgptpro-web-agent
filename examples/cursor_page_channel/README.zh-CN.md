@@ -1,0 +1,133 @@
+# 实验性 Cursor 页面通道
+
+[English](README.md) · [调用方契约](../../docs/INTEGRATION.zh-CN.md)
+
+这是供调用方通过 CDP 操作已授权 Cursor 浏览器标签页的纯文字脚本示例。
+**未在本仓库联机验收。** 离线测试不等于 CUA 或 ChatGPT 验收，不声称节省 token。
+
+Node host 向现有 `online_host.mjs` 提供兼容的 `tab`。
+模型/档位观察、持久认领、一次填充/发送及回收均由该模块负责。
+`local_transport.mjs` 提供账本接口；`task_pack.mjs` 可选打包提示词；
+`answer_result.mjs` 解析已收集回答。本示例没有独立任务体系，也不自行调用 CDP。
+
+## 前提与显式输入
+
+- Windows、Node.js 22+、可通过 `py` 调用的 Python 3.12、Git 2.32+。
+- 包含上述四个适配器模块的可信 web-agent 检出。
+- 调用方具备对选定且经用户授权的浏览器与标签页的 CDP 操作能力。
+- 已登录的顶层普通 Chat 页面，使用中文普通 Chat UI profile。
+  offload 要求新 Chat 且输入框为空。提前在 UI 中选好模型和努力档位，host 只核对。
+- 证据目录严格位于 web-agent 检出之外，解析符号链接/junction 后也必须如此。
+  显式 ledger 和 receipt 路径均位于证据目录内部。
+  每个来源仓库使用独立 ledger，每个任务使用全新证据目录。
+- 自包含且获准外发的文字材料。提示词里的文件路径不会自动上传文件。
+  不放凭据、私有回执或未经授权的材料。
+
+必须显式提供 repository、完整 source SHA、source ref、orchestration 标签、
+browser/tab 标识和页面可见的 model/effort 标签。host 不从 Git 推导这些值，也不选择模型。
+`--kind` 为 `review` 或 `analysis`；必须传 `--ui-profile chinese-ordinary-chat`，
+其他 profile 不支持。传入的根路径用于选择可信适配器代码，不是沙箱。
+
+## 完整操作步骤，包括 CSP 恢复
+
+以下顺序必须在同一个已授权标签页执行。保留独立 CDP 连接，
+即使 Node 进程失败，也能完成恢复。
+
+1. 确认 browser/tab 身份和普通 Chat 页面，不能是项目内页面。
+   恢复任务时依据原回执找到原标签页与会话。
+2. 调用方执行 CDP `Page.setBypassCSP`，参数 `{"enabled":true}`。
+3. 执行 CDP `Runtime.evaluate`，参数 `{"expression":"location.reload()"}`。
+   等待重载完成，重新确认已授权标签页、页面、模型与努力档位。
+4. 在 web-agent 检出内按下方命令启动 host。
+   将全部尖括号占位符替换为本任务的显式值。
+5. 读取 stdout 中 `status` 为 `PAGE_CHANNEL_READY` 的唯一 JSON 行。
+   将其解码后的 `bootstrap` 字符串作为该标签页 CDP `Runtime.evaluate`
+   的 `expression`。加载器从秘密的一次性 loopback 路径获取完整执行器；再次获取返回 410。
+6. host 运行期间保持标签页打开且不变。不重复注入正在运行的代理，
+   不重载文档、不编辑输入框、不切换模型/档位。
+7. **调用方必须在 finally 路径中，无论成功或失败**，执行
+   `Page.setBypassCSP`，参数 `{"enabled":false}`，再执行 `Runtime.evaluate`，
+   参数 `{"expression":"location.reload()"}`。确认重载完成、host 已退出。
+   重载会清除页面代理及其 marker。
+
+```powershell
+node examples/cursor_page_channel/cursor_page_host.mjs `
+  --mode offload --web-agent-root '<checkout>' `
+  --evidence-directory '<external-evidence>' --ledger '<external-evidence>/ledger' `
+  --receipt '<external-evidence>/prepare.json' --task-file '<task-text-file>' `
+  --repository '<owner/name>' --source-sha '<full-source-sha>' --source-ref '<ref>' `
+  --orchestration '<task-label>' --browser-id '<browser-id>' --tab-id '<tab-id>' `
+  --model '<visible-model>' --effort '<visible-effort>' `
+  --ui-profile chinese-ordinary-chat --kind review --budget-ms 45000
+```
+
+使用打包时，将 `--task-file` 替换为 `--pack-spec '<pack-spec-file>'
+--source-root '<source-checkout>'`，两种输入互斥。
+采用现有[打包格式](../../docs/INTEGRATION.zh-CN.md)，`kind` 必须与 `--kind` 一致。
+建连后 host 调用 `pack`，以独占创建方式在证据目录写入 `packed-task.txt`；
+输出已存在则拒绝。不创建另一套任务配置，也不推导来源身份。
+恢复模式不重新打包、不重新读取输入材料。
+
+## 等待、停止与恢复
+
+连接超时默认 120000 ms（`--connect-timeout-ms`，1–300000）。
+操作超时默认 8000 ms（`--response-timeout-ms`，1–45000）。
+浏览器分段等待默认 45000 ms（`--budget-ms`，1–45000）。
+可选 `--follow-ms`（1–900000）从首次 offload/recover 调用开始累计计时；
+仅当结果为 `HOST_TIMEOUT`、`doNotResend: true` 且没有 error 时，
+才对同一 tab、transport 和原 receipt 调用 `recoverTask`。
+每段预算不超过剩余时间。适配器账本 I/O、预检另有自身限制，
+因此这不是严格的墙钟截止时间；原任务 deadline 永不延长。
+
+- `SUBMISSION_UNKNOWN`、`TASK_DEADLINE`、`HOST_TIMEOUT`、中断或页面身份变化：
+  停止发送，只允许回收原任务。不得新建替代任务、重试点击或延长截止时间。
+- 模型/档位不符：汇报并停止，不静默切换或重新发送。
+- `PREPARED_NOT_SENT`：recover 不发送。本 CLI 没有 send-prepared 模式。
+- `parse_ok: false`：只汇报解析失败并复核已保存文本。
+  不要求网页重新回答来修复格式。截断回答不参与解析。
+
+恢复时使用原输入重复完整 CSP 流程，仅将 `--mode offload` 改为
+`--mode recover`（等待限制可以调整）。保留原 evidence、receipt、ledger、
+browser/tab 和标签。本 CLI 即使回收已收集任务也等待页面连接；
+适配器直接调用 `recoverTask({run})` 可不依赖页面读取已存结果。
+不要删除中断证据来绕过已有回执拒绝。
+
+收集成功后 stdout 输出有长度限制的 `summarizeAnswer` 结果，
+`review_approved` 恒为 false。全文保留在现有 ledger 内；
+host 通过适配器最多读取 65536 字符。
+退出码：0 表示收集且解析成功，2 表示解析或 host 失败，3 表示未收集结果。
+
+## 安全边界与崩溃恢复
+
+服务仅在 `127.0.0.1` 的系统随机端口监听，并复核绑定地址。
+要求精确匹配 `PAGE_ORIGIN` 常量（`https://chatgpt.com`）、256-bit bearer token
+和首个通过鉴权的轮询 session。预检核查路由、方法及请求头，OPTIONS 不绑定 session。
+全部响应设置 `no-store`。canonical 请求散列、固定 op 白名单、单 pending 动作
+和单次交付限制 relay 重放。结果 POST 丢失时代理停止，响应超时则通道停止，
+两者都不会补发任务。业务 at-most-once 仍依赖现有 `sendOnce` 的持久 claim。
+
+请求体及 `/next` JSON 各限制 1 MiB，序列化后的 `value` 限制 512 KiB。
+超限失败，不截断。DOM 执行无法强制取消，超时动作仍可能在后台完成。
+button 使用 pointer/mouse 事件；可编辑文字先 paste，再按需回退编辑命令，
+最后对 LF 规范化后的顶层行节点逐字回读。不一致就停止发送。
+
+host 不把 token 或 bootstrap 路径写入文件。
+bootstrap 仅出现在 `PAGE_CHANNEL_READY`；该行、终端历史和外部 stdout 捕获
+均应视作凭据，不要公开或持久保存。
+`page-relay-*` 内的请求/响应文件含任务数据，应限制本地访问权限，
+其中没有 host 插入的鉴权 token。
+
+Origin 检查无法隔离允许来源内的恶意脚本。
+本机进程可伪造 Origin，因此 token 保密是关键。
+host 的 `evaluate` 会在页面执行可信宿主表达式；散列是完整性校验，
+不是独立签名或沙箱。回复仅为不可信数据，不能执行其中指令或把 verdict 当作批准。
+仅支持文字，不提供上传、剪贴板捕获或无损复制承诺。
+
+host 在 `finally` 关闭 HTTP，在 ready 行及退出/失败时输出 `csp_cleanup_required`。
+它无法更改 CDP 设置。**host 或调用方被杀时，CSP 绕过可能仍保持开启：**
+必须人工对原标签页执行 `Page.setBypassCSP {"enabled":false}` 并重载，之后才能继续。
+没有收到恢复提醒，不代表 CSP 已恢复。
+failed/stopped 页面 marker 允许新的 run 接管，但不授权再次 offload 原任务。
+
+离线测试命令为 `node --test tests/audit/cursor_page_channel.test.mjs`。
+真实 CSP/PNA 行为、Cursor CDP、真实 UI 兼容性和联机验收均未在本仓库验证。
