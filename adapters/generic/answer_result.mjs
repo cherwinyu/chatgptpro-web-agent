@@ -37,9 +37,10 @@ export function answerFormatText(kind) {
 export function parseAnswer(text, { kind } = {}) {
   if (typeof text !== 'string') throw new TypeError('ANSWER_ARGUMENTS_INVALID: text must be a string');
   const allowed = verdicts(kind);
+  const lines = text.split(/\r\n|\n|\r/);
   let fence = null, last = null, body = [];
   // Track all Markdown fences so examples inside other blocks are not answers.
-  for (const line of text.split(/\r\n|\n|\r/)) {
+  for (const line of lines) {
     if (fence) {
       const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
       if (close && close[1][0] === fence.mark[0] && close[1].length >= fence.mark.length) {
@@ -55,10 +56,17 @@ export function parseAnswer(text, { kind } = {}) {
     }
   }
   const invalid = error => ({ parse_ok: false, errors: [error], preview: text.slice(0, 800) });
-  if (!last) return invalid('ANSWER_JSON_BLOCK_NOT_FOUND');
+  const rendered = !last;
+  if (rendered) {
+    // Rendered code has a language-label line; consume its entire suffix only.
+    const label = lines.findLastIndex(line => ['JSON', 'json'].includes(line.trim()));
+    if (label === -1) return invalid('ANSWER_JSON_BLOCK_NOT_FOUND');
+    last = { closed: true, text: lines.slice(label + 1).join('\n') };
+  }
   if (!last.closed) return invalid('ANSWER_JSON_BLOCK_UNCLOSED');
   let parsed;
   try { parsed = JSON.parse(last.text); } catch { return invalid('ANSWER_JSON_INVALID'); }
+  if (rendered && !object(parsed)) return invalid('ANSWER_JSON_INVALID');
   if (!object(parsed) || !allowed.includes(parsed.verdict)
       || typeof parsed.summary !== 'string' || parsed.summary.length > 500
       || !levels.includes(parsed.confidence) || !Array.isArray(parsed.findings)

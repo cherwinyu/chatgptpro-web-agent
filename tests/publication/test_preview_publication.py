@@ -160,6 +160,42 @@ class PublicPreviewTests(unittest.TestCase):
             self.assertIn('recoverTask', body)
             self.assertNotIn('token savings achieved', body.lower())
 
+    def test_cursor_page_channel_observation_is_not_formal_acceptance(self):
+        manifest=json.loads((self.root/'capability-manifest.json').read_text(encoding='utf-8'))
+        observation=manifest['cursor_page_channel_observation']
+        self.assertTrue(observation['loopback_access']['page_to_loopback_fetch_succeeded'])
+        self.assertIn('confirmed that no host process remained', observation['csp_bypass']['cleanup'])
+        self.assertEqual(observation['status'], 'SINGLE_HOST_SYNTHETIC_OBSERVATION')
+        self.assertFalse(observation['formal_acceptance'])
+        self.assertFalse(observation['certifies_current_tree'])
+        self.assertEqual(observation['base_commit'], 'a88201bfa6f92ff2939c8689058dbeab9d70170f')
+        self.assertEqual(observation['runtime_source_digest_at_collection'],
+                         'e223ac0e1b0b0630019c31aa558984ed58eea3c4f1e8c747e1c7ab5b0dfe5dcf')
+        self.assertEqual(observation['real_sends'], 2)
+        self.assertFalse(observation['selection']['pro_tier'])
+        self.assertEqual(manifest['model_or_fee_claim'], 'NOT_OBSERVABLE')
+        self.assertNotIn('SINGLE_HOST_SYNTHETIC_ONLINE_ACCEPTED', json.dumps(observation))
+        runs=observation['runs']
+        self.assertEqual([run['task'] for run in runs], ['task1', 'task2', 'task3'])
+        self.assertEqual(runs[0]['send_attempts'], 0)
+        self.assertEqual(runs[0]['error_code'], 'REQUESTED_SELECTION_NOT_VISIBLE')
+        for run, characters, sha in (
+            (runs[1], 511, 'cfbad8fb1a466132a3a0335bfbe55c9d529d7ecd65bd6acc5d9c0ad76f2fc24f'),
+            (runs[2], 179, '6921f0d9bf82c987e7dba34a2b8ae7bce4f0416b8aacd0be8a0e0f24526687f4'),
+        ):
+            self.assertEqual(run['outcome'], 'COLLECTED')
+            self.assertEqual(run['send_attempts'], 1)
+            self.assertEqual(run['result_characters'], characters)
+            self.assertEqual(run['result_sha256'], sha)
+        self.assertFalse(runs[1]['parse_ok_at_collection'])
+        self.assertTrue(runs[1]['parse_ok_after_fix_offline'])
+        self.assertTrue(runs[2]['parse_ok_at_collection'])
+        self.assertEqual(runs[2]['verdict'], 'PASS')
+        recovery=runs[2]['recover_same_receipt']
+        self.assertEqual(recovery['outcome'], 'COLLECTED')
+        self.assertEqual(recovery['result_sha256'], runs[2]['result_sha256'])
+        self.assertEqual(recovery['send_attempts'], 1)
+
     def test_rc3_pre_release_is_not_the_offload_snapshot(self):
         """Consumers must not treat the published rc.3 tag as the offload tree."""
         en = (self.root/'docs/INTEGRATION.md').read_text(encoding='utf-8')

@@ -3,7 +3,7 @@
 [English](README.md) · [调用方契约](../../docs/INTEGRATION.zh-CN.md)
 
 这是供调用方通过 CDP 操作已授权 Cursor 浏览器标签页的纯文字脚本示例。
-**未在本仓库联机验收。** 离线测试不等于 CUA 或 ChatGPT 验收，不声称节省 token。
+**在单个宿主上观察过一次（见「联机观察记录」），不是正式验收。** 离线测试不等于 CUA 或 ChatGPT 验收，不声称节省 token。
 
 Node host 向现有 `online_host.mjs` 提供兼容的 `tab`。
 模型/档位观察、持久认领、一次填充/发送及回收均由该模块负责。
@@ -130,4 +130,29 @@ host 在 `finally` 关闭 HTTP，在 ready 行及退出/失败时输出 `csp_cle
 failed/stopped 页面 marker 允许新的 run 接管，但不授权再次 offload 原任务。
 
 离线测试命令为 `node --test tests/audit/cursor_page_channel.test.mjs`。
-真实 CSP/PNA 行为、Cursor CDP、真实 UI 兼容性和联机验收均未在本仓库验证。
+已在一个宿主上联机观察过（见下一节）：Cursor IDE 浏览器允许 `Page.setBypassCSP`，
+bootstrap 注入与收集可用，recover 取回同一正文且没有重发。
+在该宿主上，页面到 `127.0.0.1` 的 bootstrap 与 relay 请求成功。
+其他宿主、其他界面语言、Pro 档、其他浏览器或版本的私有网络访问（PNA）行为，以及正式验收，仍未验证。
+
+## 联机观察记录
+
+2026-10-25，Director 在现场调试中于一个宿主上运行了本通道：Windows 上 Cursor IDE
+内置浏览器，chatgpt.com 中文普通 Chat，已登录，非 Pro 档，使用
+`--ui-profile chinese-ordinary-chat`。该宿主允许 CSP 绕过，每次运行后都已关闭并重载页面。
+共三次尝试、两次真实发送，材料为合成只读任务：一次在发送前被拒
+（`REQUESTED_SELECTION_NOT_VISIBLE`）；一次 `COLLECTED`，但原解析器因渲染形态解析失败
+（已在 `answer_result.mjs` 中修复）；一次 `COLLECTED` 且 `parse_ok: true`，
+其 `--mode recover` 返回相同 SHA-256，`send_attempts` 仍为 1。
+完整记录见[已验收和未验收](../../docs/INTEGRATION.zh-CN.md#已验收和未验收)。
+这是单宿主观察，不是正式验收，不显示节省 token，也不证明后端模型身份。
+
+该次运行得到的操作注意：
+
+- 页面标签的语言可能在重载后变化：同一标签页先后显示过 `6 Extra High` 与 `6 极高`。
+  启动 host 前，要在刚重载后的页面上读取标签，`--model` / `--effort` 与之逐字一致。
+  否则 host 会在发送前以 `REQUESTED_SELECTION_NOT_VISIBLE` 拒绝，这种拒绝不消耗发送。
+- 收集到的是渲染文本。开头的 `ChatGPT 说：` 和单独一行 `JSON`（渲染后的代码围栏）
+  都是正常形态，解析器已支持。
+- recover 也要重新开启 CSP 绕过并再次注入 bootstrap；结束后同样关闭 CSP 绕过并重载，
+  与主流程相同。
