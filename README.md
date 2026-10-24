@@ -1,64 +1,104 @@
 # chatgptpro-web-agent
 
-[简体中文](README.zh-CN.md) · [Integrate a primary agent](docs/INTEGRATION.md) · [Online workflow](docs/ONLINE_WORKFLOW.md) · [Offline quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
+[简体中文](README.zh-CN.md) · [Integrate a primary agent](docs/INTEGRATION.md) · [Online workflow](docs/ONLINE_WORKFLOW.md) · [Quick start](docs/QUICKSTART.md) · [Research boundaries](docs/RESEARCH_USE.md) · [License](LICENSE) · [Security](SECURITY.md)
 
-**A Windows research helper that lets a host agent hand a bounded analysis to ordinary web ChatGPT, wait for it, and collect the reply locally.**
+**Lets a local coding agent hand one bounded, self-contained task to a logged-in ordinary ChatGPT web conversation, send it once, and bring the reply back locally.** An unofficial, noncommercial Windows research preview.
 
-## Which download
+## What it does
 
-The public download is Pre-release [`v0.1.0-rc.3`](https://github.com/cherwinyu/chatgptpro-web-agent/releases/tag/v0.1.0-rc.3). It is not a formal stable Release, and it is not an official OpenAI product. That package is the offline research preview frozen at commit `3051279`. Later main, including the online offload from PR #8, is not in rc.3.
+A primary agent working locally (for example, a coding agent in Codex or Cursor) packs a bounded, self-contained task and hands it to a logged-in ordinary ChatGPT web session. The helper sends it exactly once, waits, recovers from the original receipt after an interruption, stores the reply locally, and can parse it into a compact structured result.
 
-| Goal | Download |
-| --- | --- |
-| First offline demo | Slim Runtime |
-| Full source and tests | Source |
-| Modify or research | Source |
-| Verify release integrity | Release SHA-256 digests |
+1. **Pack**: `adapters/generic/task_pack.mjs` turns a `pack.json` into one self-contained task file. It has a byte budget and refuses an over-budget pack instead of truncating it.
+2. **Send once**: `offloadTask` in `adapters/generic/online_host.mjs` checks the visible model and effort labels, records a durable single-send claim, clicks send once, waits, and returns a bounded excerpt.
+3. **Recover if needed**: `recoverTask` reloads the same receipt to keep waiting or to read the stored reply. It never clicks send.
+4. **Parse**: `adapters/generic/answer_result.mjs` reads the agreed trailing JSON block, including its rendered-page text form, into a verdict, summary, and findings. `review_approved` is always false.
 
-You do not need both ZIPs. Slim Runtime (`chatgptpro-web-agent-v0.1.0-rc.3-runtime-slim.zip`, SHA-256 `4b5d65eefd337fa45d5dd2389d7fe409b2be6ee5494b86b2ac3084201d5208fd`) is the 42-file offline bundle: bridge code, example schemas, license, notices, and the quick start. It omits `tests\`, `scripts\`, and CI. Source (`chatgptpro-web-agent-v0.1.0-rc.3-source.zip`, SHA-256 `0a3f8d0f94bdd3b9ebcb055dfee9a60237e584b38ccc70f5d1329c03c1f60495`) is the full 58-file freeze, including tests and `scripts\publication_audit.py`. Hash the ZIP with `Get-FileHash -Algorithm SHA256` before extracting. A hash inside the ZIP is not the trust root. The offline demo needs Windows, Python 3.12, and Git 2.32 or later. The audit and unit tests are Source-only. Steps are in the [offline quick start](docs/QUICKSTART.md).
+The web page cannot read your repository. Everything it needs must be packed into the task file; a file path written in a prompt is only text.
 
-## Why we built it
+## What it is for
 
-An agent working in a local repository sometimes needs a second, substantial analysis: a code review, an architecture comparison, or a synthesis of material. We wanted a repeatable way to give that work to a web ChatGPT conversation, while the local agent keeps responsibility for context, local tools and the final decision. A useful handoff needs more than pasting a prompt: it must identify the task, avoid accidental duplicate sends, wait within a deadline, recover an interrupted session and bring the right answer back.
+Good fits are tasks whose material fits completely in the task file:
 
-Our initial hypothesis was that moving suitable work out of the main agent **might** reduce its token or subscription usage. That remains an open question, not a project result or a promised benefit. Packaging material, operating the browser, waiting and reviewing the answer also have costs; total usage may stay the same or increase. The current goal is to make task sharing usable and inspectable so that its value can be evaluated on real workloads.
+- a second opinion on a code review or a diff;
+- a comparison of architecture options;
+- a synthesis or analysis of supplied material.
 
-## What is included
+Poor fits:
 
-- An optional CUA browser-host adapter for observed model/effort checks, one send, completion detection and response collection.
-- A local Python ledger with immutable task manifests, original receipts, single-send claims and recovery checks.
-- A direct `browser_response` path for self-contained analysis, plus the separate original Git-result verification path.
-- A bounded, hash-checked result reader for the main agent, synthetic fixtures, offline regressions and Windows CI.
+- tasks that need to read a whole repository;
+- tasks that need to write to GitHub (the reply is data, not a Git change);
+- unattended or production runs.
 
-This is an independent noncommercial research preview, publicly available under PolyForm Noncommercial 1.0.0. It has fresh Git history and an explicit file allowlist. It is not an official OpenAI product or endorsed integration. A public Pre-release, `v0.1.0-rc.3`, is on GitHub Releases; it is not a formal stable Release.
+## Why
 
-## How to start
+The goal is to make "give this to web ChatGPT" repeatable, inspectable, and recoverable, without accidental duplicate sends. The primary agent keeps its context, its local tools, and the final decision. The initial hypothesis was that offloading suitable work **might** reduce the primary agent's token or subscription usage. That is still an open question to evaluate, not a project result. Packing, browsing, waiting, and review all cost something; total usage may stay the same or increase.
 
-First run the credential-free offline demo. From a Slim Runtime extract, a Source extract, or this repository's root:
+## Status
+
+The current Pre-release is [`v0.1.0-rc.6`](https://github.com/cherwinyu/chatgptpro-web-agent/releases/tag/v0.1.0-rc.6). The source is publicly available, but this is not a formal stable Release, and it is not an official OpenAI product or integration.
+
+Online evidence, recorded in `capability-manifest.json` and in [Accepted and not accepted](docs/INTEGRATION.md#accepted-and-not-accepted):
+
+- **2026-10-19**: a historical run in the Codex in-app browser. Its runtime digest does not match later trees, so it does not certify this checkout.
+- **2026-10-20**: the owner's single-host synthetic acceptance in the Windows Codex in-app browser, Chinese ordinary Chat (`synthetic_online_acceptance`). It covers only the commit and runtime digest recorded there.
+- **2026-10-25**: a single-host synthetic observation of the Cursor page-channel example in the Cursor IDE browser, Chinese ordinary Chat, not the Pro tier (`cursor_page_channel_observation`). It is not a formal acceptance.
+
+The current runtime digest has no formal online acceptance. A consumer project needs its own synthetic online acceptance. Windows CI is an offline check only.
+
+## Download and start
+
+You need only one ZIP from the [`v0.1.0-rc.6` Release page](https://github.com/cherwinyu/chatgptpro-web-agent/releases/tag/v0.1.0-rc.6).
+
+| Goal | Package | Extracts to |
+| --- | --- | --- |
+| Offline demo, or install the runtime for a host | Slim Runtime: `chatgptpro-web-agent-v0.1.0-rc.6-runtime-slim.zip` | `chatgptpro-web-agent-v0.1.0-rc.6-runtime-slim` |
+| Tests, modification, research, or the Cursor page-channel example | Source: `chatgptpro-web-agent-v0.1.0-rc.6-source.zip` | `chatgptpro-web-agent-v0.1.0-rc.6-source` |
+
+Slim Runtime contains the runtime code (including the online offload), example schemas, the user documentation (not the migration notes), and a `release-manifest.json`. It has no `tests/`, `scripts/`, `examples/`, or CI. Source is the full public tree listed in `PUBLIC_FILELIST.txt`, including tests, scripts, and examples. It has no release manifest, so a Manifest Pin does not apply to it. The Cursor page-channel example (`examples/cursor_page_channel/`) is only in Source.
+
+1. Before extracting, hash the ZIP with `Get-FileHash -Algorithm SHA256` and compare it with the SHA-256 on the Release page. The Release page is the reference; a hash inside the ZIP is not the trust root.
+2. For Slim Runtime, copy the Manifest Pin from the Release page and, in the extracted folder, run `py -3.12 adapters/generic/run_bridge.py identify --trusted-manifest-sha256 <pin>`. Require `provenance_status` `VERIFIED`.
+3. Run the credential-free offline demo (Windows, Python 3.12, Git 2.32+):
 
 ```powershell
 py -3.12 adapters/generic/run_bridge.py demo --json
 py -3.12 adapters/generic/run_bridge.py preview-permissions --manifest schemas/manifest.example.json --lang en --json
 ```
 
-Requirements: Windows, Python 3.12, Git 2.32+. No credential, session cookie, account login or model API key is required to run these examples. The permission preview always reports `send_authorized=false`; it cannot create a send entitlement. These two commands are in the Slim Runtime ZIP. `scripts\publication_audit.py` and `tests\` are Source-only. A demo that stays offline (`network_attempted` false, `web_send_count` 0) is not proof that an online ChatGPT send has been verified for every host.
+Both commands stay offline (`network_attempted` false, `web_send_count` 0), and the preview always reports `send_authorized` false. A successful offline demo does not show that an online send works on any host. Full commands are in the [quick start](docs/QUICKSTART.md).
 
-An actual handoff is documented for current main and is outside Pre-release `v0.1.0-rc.3`. The host additionally needs Node.js 22+, its documented CUA browser API and a logged-in ordinary Chat page. In that host's JavaScript browser runtime, call `offloadTask` once. If the page is still generating, call `recoverTask` on the same receipt for another wait. It does not click send. The [integration guide](docs/INTEGRATION.md) is the caller contract. The [online guide](docs/ONLINE_WORKFLOW.md) records selectors, failure behavior, and the browser notes. A terminal alone cannot drive the browser, and putting local file paths in a prompt does not upload their contents.
+To call the online offload, the host also needs Node.js 22+, a host JavaScript runtime with the documented CUA browser API, and a logged-in ordinary Chat page. The [integration guide](docs/INTEGRATION.md) is the caller contract for `offloadTask` and `recoverTask`; the [online workflow](docs/ONLINE_WORKFLOW.md) covers selectors and failure behavior. A terminal alone cannot drive the browser.
 
-## Online integration scope
+## What is included
 
-This section describes current main. Published Pre-release `v0.1.0-rc.3` (freeze `3051279`) does not include the PR #8 online handoff, `offloadTask`, or the acceptance records below.
+- A local Python ledger and receipts under `tools/pro_bridge/`: immutable task manifests, original receipts, single-send claims, and recovery checks, launched by `adapters/generic/run_bridge.py`.
+- `adapters/generic/online_host.mjs`: `offloadTask` and `recoverTask`.
+- `adapters/generic/local_transport.mjs`: the ledger transport, including the hash-checked bounded reader `readCollected`.
+- `adapters/generic/browser_host.mjs`: the optional CUA browser-host adapter for model/effort observation, one send, completion detection, and collection.
+- `adapters/generic/task_pack.mjs`: task-file packing with a budget.
+- `adapters/generic/answer_result.mjs`: parsing of the trailing JSON answer block.
+- The separate Git result verification path (`tools/pro_bridge/cli.py verify`), which does not upgrade a chat reply into approval.
+- `examples/cursor_page_channel/`: an experimental Cursor page-channel example, Source only.
 
-On 2026-10-19 a synthetic read-only review completed in the Codex in-app browser with visible labels GPT-6 / Pro. Its 325-character rendered reply was collected; original-receipt recovery retained one send attempt and the same reply hash. That run is the historical record in `capability-manifest.json`. Its runtime digest does not match later trees, so the run does not certify this checkout, other hosts, other locales, or a consumer project.
+## Version history
 
-On 2026-10-20 the owner accepted one later synthetic read-only review on a Windows Codex in-app browser, Chinese ordinary Chat. The accepted commit and runtime digest are `synthetic_online_acceptance` in `capability-manifest.json`. The pre-claim menu showed GPT-6 / Pro, and the closed control showed only Pro. One `offloadTask` clicked send once. The first wait returned `HOST_TIMEOUT` while the page was still generating. `recoverTask` on the same receipt collected a 296-character reply. After the host JavaScript runtime was restarted and the original tab was bound again, `recoverTask` returned that same reply, and the ledger still had one send attempt. A 120-character `readCollected` excerpt was a truncated prefix; the full body stayed in the ledger. This documentation records the owner's handoff. It did not run that browser flow. The acceptance is one host, one locale, and one synthetic task. It does not accept other hosts, other locales, or a consumer project. A consumer project needs its own synthetic online acceptance. Windows CI remains an offline check. Browser-response delivery does not need a GitHub writer. The original Git verification path remains separate and is not an upgrade of a chat reply. There is no universal browser driver, hosted-model API client, or credential custodian. Token and subscription savings are not an achieved result.
+All are Pre-releases; none is a formal stable Release.
 
-## Distribution and rights
+- `v0.1.0-rc.6`: rc.5 plus documentation updates; runtime code unchanged.
+- `v0.1.0-rc.5`: adds `task_pack.mjs`, `answer_result.mjs`, and the experimental Cursor page-channel example (Source only).
+- `v0.1.0-rc.4`: the first Pre-release with the ordinary ChatGPT web offload from PR #8: `offloadTask` / `recoverTask` in `online_host.mjs` and `readCollected` in `local_transport.mjs`.
+- `v0.1.0-rc.3`: the offline research preview; it does not include the online offload.
 
-The [PolyForm Noncommercial License 1.0.0](LICENSE) is reproduced without alteration and covers only interests the licensor actually controls. It permits certain noncommercial use, modification and redistribution subject to its conditions; it is **not** an OSI-approved open-source license. It does not grant permissions for third-party code or hosted services, and it does not mean third-party rights have been cleared. [Scope notice](docs/legal/LICENSE_SCOPE.md). The experimental *not-for-production* statement is a support recommendation, not an unannounced change to the license. This preview is not production-ready.
+## Boundaries, license, and rights
 
-**Public Pre-release `v0.1.0-rc.3` is not a formal stable Release.** The published pre-release tag `v0.1.0-rc.3` is an earlier snapshot and does not include the online offload. Download the Source ZIP or the Slim Runtime ZIP from that Release and check each ZIP with `Get-FileHash -Algorithm SHA256` against the digests on the Release page (also listed in the [quick start](docs/QUICKSTART.md)). rc.3 stays the offline research preview at freeze `3051279`. Later main, including PR #8, is not in that Pre-release. Pin the commit you checked out and confirm the installed runtime in the [integration guide](docs/INTEGRATION.md). A candidate package name is not a tag, a formal Release, or online acceptance. Offline regressions and local online acceptance are separate evidence. A passing Windows CI job or a successful offline demo does not show that an online ChatGPT send has been verified for every host. Native Windows CI on this repository's own exact commit is the engineering check for that snapshot; historical repository CI results cannot certify it. Component-level source rights, attribution, and brand permission stay separate from public source availability.
+- Unofficial and noncommercial. The [PolyForm Noncommercial License 1.0.0](LICENSE) is reproduced unaltered. It is **not** an OSI-approved open-source license, covers only rights the licensor controls, grants no permission for third-party code, hosted services, or brands, and does not mean third-party rights have been cleared ([scope notice](docs/legal/LICENSE_SCOPE.md)).
+- Not production-ready. The not-for-production statement is a support recommendation, not an added license condition.
+- Visible model labels on the page are not backend model identity.
+- Token or subscription savings are an unverified hypothesis, not a result.
+- Single send is local at-most-once, not distributed exactly-once. An uncertain send (`SUBMISSION_UNKNOWN`) is never resent automatically.
+- The reply is data, not Git delivery approval.
+- It is not a universal browser driver or a model API client, and it does not hold credentials. Use only accounts and services you are authorized to use; see [research boundaries](docs/RESEARCH_USE.md).
 
 ## Contributing and security
 
-Use synthetic fixtures, scoped changes and independently reproducible tests. Please read [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md) before filing issues; do not post complete receipts, credentials, or private task data.
+Use synthetic fixtures, scoped changes, and independently reproducible tests. Read [CONTRIBUTING](CONTRIBUTING.md) and [SECURITY](SECURITY.md) before filing issues; do not post receipts, credentials, or private task data.

@@ -8,7 +8,7 @@
 
 - Windows、Python 3.12、Git 2.32+、Node.js 22+。
 - 宿主的 JavaScript 运行环境提供已文档化的 CUA 浏览器 API（`listBrowsers`、`listTabs`、`getTab`，以及类似 Playwright 的 `tab.playwright`）。单独的终端没有 `cua`。
-- 已登录的普通 Chat 页面，不在项目内，模型和努力档位已经在页面上选好。随附的读取器识别中文普通 Chat 的界面文字。其他语言需要自己的观察函数和发送按钮选择器，并单独验收。
+- 已登录的普通 Chat 页面，不在项目内，模型和强度已经在页面上选好。随附的读取器识别中文普通 Chat 的界面文字。其他语言需要自己的观察函数和发送按钮选择器，并单独验收。
 - 证据目录必须放在本仓库工作区**之外**，账本放在该目录里面。一个账本只服务一个源仓库。不要让两个项目共用同一个账本，也不要让程序顺着上级 Git 目录自己找账本。
 
 这里不保存模型 API 密钥。不要把凭据、Cookie 或未经授权的私人材料写进任务文件。
@@ -17,7 +17,9 @@
 
 克隆或解压你打算调用的那次提交。已发布的预发布标签 `v0.1.0-rc.3` 指向提交 `3051279bd6533d27a7675f8de922a326008cadf5`。该标签及其 Release 资源是更早的快照，不包含这次在线分担：那些资源里没有 `offloadTask`、`adapters/generic/online_host.mjs`、`adapters/generic/local_transport.mjs`，也没有本说明对应的在线页面。不要安装 `v0.1.0-rc.3` 再指望本页的调用可用。
 
-目前没有正式版本 Release 包含这次分担。本页不会创建标签。候选包名称不是已发布标签，不是正式 Release，也不是在线验收。2026-10-20 对提交 `4399582ddc500216cf4a6034f273946f2b79208d` 的验收不会自动转移到后来的 `runtime_source_digest`。
+带在线分担的 Pre-release 从 `v0.1.0-rc.4` 起提供；当前是 [`v0.1.0-rc.6`](https://github.com/cherwinyu/chatgptpro-web-agent/releases/tag/v0.1.0-rc.6)。请安装其精简运行时 ZIP，先核对 Release 页面上的 ZIP SHA-256，再用 Release 页面上的 Manifest Pin 走下一节的 `identify`。也可以克隆或解压你打算调用的那次提交。
+
+所有版本都是 Pre-release，没有正式稳定版 Release 包含这次分担。本页不会创建标签。候选包名称不是已发布标签，不是正式 Release，也不是在线验收。2026-10-20 对提交 `4399582ddc500216cf4a6034f273946f2b79208d` 的验收不会自动转移到后来的 `runtime_source_digest`。
 
 ## 核对已安装运行时是否就是那次提交
 
@@ -35,7 +37,7 @@ py -3.12 adapters/generic/run_bridge.py identify --trusted-manifest-sha256 <pin>
 
 ## 主代理调用什么
 
-在宿主的浏览器运行环境中导入 `adapters/generic/online_host.mjs`。`offloadTask` 会写入账本回执、核对页面上的模型和努力档位、取得一次发送资格、点击一次、等待，并返回限长正文。`recoverTask` 只读取同一张原始回执，不会再点击发送。
+在宿主的浏览器运行环境中导入 `adapters/generic/online_host.mjs`。`offloadTask` 会写入账本回执、核对页面上的模型和强度、取得一次发送资格、点击一次、等待，并返回限长正文。`recoverTask` 只读取同一张原始回执，不会再点击发送。
 
 ```javascript
 const online = await import('file:///D:/bridge-checkout/adapters/generic/online_host.mjs');
