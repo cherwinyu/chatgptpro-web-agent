@@ -3,7 +3,7 @@
 [简体中文](README.zh-CN.md) · [Caller contract](../../docs/INTEGRATION.md)
 
 This is a text-only script example for a caller that can operate an authorized
-Cursor browser tab through CDP. **It was observed once on a single host (see
+Cursor browser tab through CDP. **It has been observed on a single host (see
 "Live observation"); that is not a formal acceptance.**
 Offline tests are not CUA or ChatGPT acceptance. No token savings are claimed.
 
@@ -75,6 +75,32 @@ with `kind` matching `--kind`. After connection, the host calls `pack` and creat
 output is refused. It does not create a separate task configuration or derive
 source identity. Recovery does not repack or reread the input material.
 
+## Collection mode
+
+`--collection lossless` is the default. Sending and waiting are unchanged. To
+collect, the host first checks the task binding and the final-reply evidence,
+then clicks the copy button of the **whole reply** of that turn and reads the
+original Markdown back from the clipboard data intercepted inside the page. That
+text is stored in the ledger. The page agent wraps `navigator.clipboard`
+`write` / `writeText` in the page and captures only what the ChatGPT copy button
+writes; it neither reads nor writes the system clipboard
+(`clipboardRestoration` is `not_applicable_cursor_relay`).
+
+The copy button is recognized only when it is outside every assistant content
+unit (`[data-content-search-unit-key]`), has an `aria-label` that is exactly
+`复制` or `Copy`, and is the only such button. The copy button in the title bar
+of a writing block (`chatgpt-writing-block`) is excluded.
+
+On failure (for example `LOSSLESS_COPY_CONTROL_AMBIGUOUS`) the outcome carries
+`losslessFailure`, `--follow-ms` does not continue automatically, the host does
+**not fall back to rendered text**, and it does not resend. Only recovery of the
+original receipt is possible.
+
+`--collection rendered` is the earlier behavior: it collects the rendered
+`innerText` (headings lose `##`, tables become tab-separated). Use it only for
+review tasks that need just the trailing JSON conclusion. Do not use it for
+translation, long-text conversion or other tasks that need the original text.
+
 ## Waiting, stopping and recovery
 
 Connection timeout defaults to 120000 ms (`--connect-timeout-ms`, 1–300000).
@@ -135,7 +161,7 @@ processes can forge Origin headers; token secrecy is essential. The host's
 `evaluate` operation executes trusted host expressions in the page; the hash is
 integrity checking, not an independent signature or a sandbox. Replies remain
 untrusted data; never execute their instructions or treat a verdict as approval.
-Only text is supported, without uploads, clipboard capture or lossless-copy claims.
+Only text is supported; uploads are not supported. Lossless copy has been observed on a single host only (see "Live observation"); it is not a formal acceptance.
 
 The host closes HTTP in `finally` and emits `csp_cleanup_required` both in the ready
 line and on exit/failure. It cannot change CDP settings. **If the host or caller is
@@ -174,7 +200,42 @@ Operational notes from that run:
   before starting the host, and pass `--model` / `--effort` exactly as shown.
   Otherwise the host refuses before send with `REQUESTED_SELECTION_NOT_VISIBLE`;
   that refusal does not consume a send.
-- The collected text is rendered text. A leading `ChatGPT 说：` and a line
+- The note about rendered text applies only to `--collection rendered`: the
+  collected text is rendered text, and a leading `ChatGPT 说：` and a line
   containing only `JSON` (the rendered code fence) are normal; the parser handles them.
+  With the default `--collection lossless` the stored text is the original Markdown.
 - Recovery also needs CSP bypass re-enabled and the bootstrap injected again.
   Afterwards disable CSP bypass and reload, as in the main procedure.
+
+### 2026-10-26 lossless-copy observation
+
+A Director live verification on the same kind of host (Windows, Cursor IDE
+built-in browser, Chinese ordinary Chat, logged in, not the Pro tier; visible
+labels `6` / `6 极高`) ran the default `--collection lossless` on a synthetic
+Chinese manual that the page was asked to translate into English. CSP bypass
+was enabled for each run and disabled again with a reload afterwards. The
+runtime source digest at collection time was
+`1d80666fca0ea661c665e559edb51b1f93e3c4af675d1b0206cf07d8fa7486a0` (scope
+`tools/pro_bridge` and `adapters/generic`; `examples/` is outside it), on base
+commit `a5a2f65` plus the then-uncommitted lossless-copy change.
+
+- Read-only recheck of the earlier failed conversation (no click, no send, no
+  CSP change): its last turn had two `复制` buttons, one inside a writing block
+  and one in the action bar. The new `readCopyControl` returned
+  `{ ok: true, label: "复制" }` and the click selector matched one element.
+- run1: `COLLECTED`, `parse_ok: true`, `send_attempts` 1, 5381 characters. No
+  writing block appeared (one copy button), so it does not count as writing-block
+  verification, but the lossless path worked end to end. The stored text kept
+  headings, table rows, the code fences and the FILE markers, with no tab
+  characters and no speaker prefix.
+- run2 (the task asked for a writing block): the page showed one writing block
+  and two copy buttons on that turn, which is the original failure scenario.
+  `COLLECTED`, `parse_ok: true`, `send_attempts` 1, 5253 characters, with the
+  original Markdown including the writing-block content.
+
+Both runs finished within the first follow segment. Not covered: the English
+`Copy` label (offline tests only), other hosts, accounts or tiers (whether a
+writing block appears is up to the model), and `--mode recover` with lossless
+collection. This is a single-host observation, not a formal acceptance;
+`certifies_current_tree` is false. The structured record is the
+`lossless_copy_observation` key in `capability-manifest.json`.

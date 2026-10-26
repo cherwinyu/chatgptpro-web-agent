@@ -11,6 +11,7 @@ THIRD_PARTY_NOTICES.md
 adapters/generic/answer_result.mjs
 adapters/generic/browser_host.mjs
 adapters/generic/local_transport.mjs
+adapters/generic/lossless_response.mjs
 adapters/generic/online_host.mjs
 adapters/generic/run_bridge.py
 adapters/generic/task_pack.mjs
@@ -45,6 +46,7 @@ scripts/publication_audit.py
 tests/audit/answer_result.test.mjs
 tests/audit/browser_host.test.mjs
 tests/audit/cursor_page_channel.test.mjs
+tests/audit/lossless_response.test.mjs
 tests/audit/online_host.test.mjs
 tests/audit/task_pack.test.mjs
 tests/audit/test_browser_delivery.py

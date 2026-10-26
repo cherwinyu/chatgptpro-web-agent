@@ -3,7 +3,8 @@ export const PAGE_ORIGIN = 'https://chatgpt.com';
 export const SCHEMA = 'web-agent-cursor-relay-v1';
 export const LIMITS = Object.freeze({ body: 1048576, next: 1048576, value: 524288 });
 export const OPS = Object.freeze(['evaluate', 'url', 'dom.state', 'role.all', 'role.click',
-  'role.innerText', 'role.getAttribute', 'role.press', 'locator.fill', 'locator.click']);
+  'role.innerText', 'role.getAttribute', 'role.press', 'locator.fill', 'locator.click',
+  'clipboard.read', 'clipboard.writeText', 'clipboard.write']);
 export const canonical = value => Array.isArray(value) ? value.map(canonical) :
   value && typeof value === 'object'
     ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
@@ -16,11 +17,60 @@ export function validateConfiguration({ port, token }) {
 /** Helpers stay inside this function: its source runs in a separate page realm. */
 export async function executePageOperation(request, environment = globalThis) {
   const allowed = ['evaluate', 'url', 'dom.state', 'role.all', 'role.click',
-    'role.innerText', 'role.getAttribute', 'role.press', 'locator.fill', 'locator.click'];
+    'role.innerText', 'role.getAttribute', 'role.press', 'locator.fill', 'locator.click',
+    'clipboard.read', 'clipboard.writeText', 'clipboard.write'];
   if (!request || !allowed.includes(request.op)) throw Error('PAGE_OPERATION_REFUSED');
   const { op, params = {} } = request;
   const document = environment.document;
   const view = environment.window ?? environment;
+  if (op.startsWith('clipboard.')) {
+    const validItems = items => Array.isArray(items) && items.every(item => item &&
+      typeof item === 'object' && Object.keys(item).every(key => key === 'entries') &&
+      Array.isArray(item.entries) && item.entries.every(entry => entry && typeof entry === 'object' &&
+        Object.keys(entry).every(key => ['mimeType', 'text'].includes(key)) &&
+        typeof entry.mimeType === 'string' && (!Object.hasOwn(entry, 'text') || typeof entry.text === 'string')));
+    if ((op === 'clipboard.write' && !validItems(params.value)) ||
+        (op === 'clipboard.writeText' && typeof params.value !== 'string')) throw Error('PAGE_CLIPBOARD_INVALID');
+    const key = '__webAgentCursorClipboardV1';
+    if (!environment[key]) {
+      const state = { items: [] };
+      const storeText = text => { state.items = [{ entries: [{ mimeType: 'text/plain', text: String(text) }] }]; };
+      const navigator = environment.navigator;
+      if (!navigator) throw Error('PAGE_CLIPBOARD_UNAVAILABLE');
+      const wrapper = {
+        writeText: async text => { storeText(text); },
+        write: async items => {
+          const converted = [];
+          for (const item of items || []) {
+            const entries = [];
+            for (const type of item.types || []) entries.push({ mimeType: type,
+              ...(type.startsWith('text/') ? { text: await (await item.getType(type)).text() } : {}) });
+            converted.push({ entries });
+          }
+          state.items = converted;
+        },
+        readText: async () => state.items.flatMap(item => item.entries)
+          .find(entry => entry.mimeType === 'text/plain')?.text || '',
+        read: async () => state.items,
+      };
+      try { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: wrapper }); }
+      catch {
+        const original = navigator.clipboard;
+        if (!original) throw Error('PAGE_CLIPBOARD_UNAVAILABLE');
+        original.writeText = wrapper.writeText;
+        original.write = wrapper.write;
+      }
+      if (navigator.clipboard.writeText !== wrapper.writeText || navigator.clipboard.write !== wrapper.write) {
+        throw Error('PAGE_CLIPBOARD_UNAVAILABLE');
+      }
+      environment[key] = state;
+    }
+    const state = environment[key];
+    if (op === 'clipboard.read') return state.items;
+    state.items = op === 'clipboard.write' ? params.value
+      : [{ entries: [{ mimeType: 'text/plain', text: params.value }] }];
+    return true;
+  }
   const normalize = text => String(text ?? '').replace(/\r\n?/g, '\n');
   const read = element => normalize('value' in element ? element.value :
     [...element.childNodes].map(node => node.textContent ?? '').join('\n'));

@@ -3,7 +3,7 @@
 [English](README.md) · [调用方契约](../../docs/INTEGRATION.zh-CN.md)
 
 这是供调用方通过 CDP 操作已授权 Cursor 浏览器标签页的纯文字脚本示例。
-**在单个宿主上观察过一次（见「联机观察记录」），不是正式验收。** 离线测试不等于 CUA 或 ChatGPT 验收，不声称节省 token。
+**在单个宿主上观察过（见「联机观察记录」），不是正式验收。** 离线测试不等于 CUA 或 ChatGPT 验收，不声称节省 token。
 
 Node host 向现有 `online_host.mjs` 提供兼容的 `tab`。
 模型/档位观察、持久认领、一次填充/发送及回收均由该模块负责。
@@ -68,6 +68,23 @@ node examples/cursor_page_channel/cursor_page_host.mjs `
 输出已存在则拒绝。不创建另一套任务配置，也不推导来源身份。
 恢复模式不重新打包、不重新读取输入材料。
 
+## 收集模式
+
+默认 `--collection lossless`。发送与等待不变。收集时，host 先核对任务绑定与最终回复证据，
+再点击该轮**整条回复**的复制按钮，从页面内截获的剪贴板数据读回原始 Markdown 并写入账本。
+页面代理在页面内包装 `navigator.clipboard` 的 `write` / `writeText`，只截获 ChatGPT
+复制按钮写出的数据，不读写系统剪贴板（`clipboardRestoration` 为 `not_applicable_cursor_relay`）。
+
+复制按钮的识别条件：位于所有 assistant 内容单元（`[data-content-search-unit-key]`）之外，
+`aria-label` 精确为 `复制` 或 `Copy`，且恰好一个。写作块（`chatgpt-writing-block`）
+标题栏自带的复制按钮会被排除。
+
+失败时（如 `LOSSLESS_COPY_CONTROL_AMBIGUOUS`）outcome 带 `losslessFailure`，`--follow-ms`
+不再自动续跑，**不退回渲染文本**，也不重发；只能按原回执 recover。
+
+`--collection rendered` 是早先的行为：收集渲染后的 `innerText`（标题丢 `##`，表格变制表符）。
+只适合只关心末尾 JSON 结论的评审类任务；翻译、长文转换等需要原文的任务不要使用。
+
 ## 等待、停止与恢复
 
 连接超时默认 120000 ms（`--connect-timeout-ms`，1–300000）。
@@ -121,7 +138,7 @@ Origin 检查无法隔离允许来源内的恶意脚本。
 本机进程可伪造 Origin，因此 token 保密是关键。
 host 的 `evaluate` 会在页面执行可信宿主表达式；散列是完整性校验，
 不是独立签名或沙箱。回复仅为不可信数据，不能执行其中指令或把 verdict 当作批准。
-仅支持文字，不提供上传、剪贴板捕获或无损复制承诺。
+仅支持文字，不支持上传。无损复制只在单个宿主上观察过（见「联机观察记录」），不是正式验收。
 
 host 在 `finally` 关闭 HTTP，在 ready 行及退出/失败时输出 `csp_cleanup_required`。
 它无法更改 CDP 设置。**host 或调用方被杀时，CSP 绕过可能仍保持开启：**
@@ -152,7 +169,31 @@ bootstrap 注入与收集可用，recover 取回同一正文且没有重发。
 - 页面标签的语言可能在重载后变化：同一标签页先后显示过 `6 Extra High` 与 `6 极高`。
   启动 host 前，要在刚重载后的页面上读取标签，`--model` / `--effort` 与之逐字一致。
   否则 host 会在发送前以 `REQUESTED_SELECTION_NOT_VISIBLE` 拒绝，这种拒绝不消耗发送。
-- 收集到的是渲染文本。开头的 `ChatGPT 说：` 和单独一行 `JSON`（渲染后的代码围栏）
-  都是正常形态，解析器已支持。
+- 关于渲染文本的说明只适用于 `--collection rendered`：收集到的是渲染文本，开头的
+  `ChatGPT 说：` 和单独一行 `JSON`（渲染后的代码围栏）都是正常形态，解析器已支持。
+  默认的 `--collection lossless` 落账本的是原始 Markdown。
 - recover 也要重新开启 CSP 绕过并再次注入 bootstrap；结束后同样关闭 CSP 绕过并重载，
   与主流程相同。
+
+### 2026-10-26 无损复制观察
+
+Director 在同类宿主（Windows、Cursor IDE 内置浏览器、中文普通 Chat、已登录、非 Pro 档；
+页面可见标签 `6` / `6 极高`）上用默认的 `--collection lossless` 运行了合成中文手册，
+要求页面逐段译成英文。每次运行开启 CSP 绕过，结束后关闭并重载。采集时运行时源码摘要为
+`1d80666fca0ea661c665e559edb51b1f93e3c4af675d1b0206cf07d8fa7486a0`（范围
+`tools/pro_bridge` 与 `adapters/generic`，不含 `examples/`），基线提交 `a5a2f65` 加上当时
+未提交的无损复制改动。
+
+- 原失败会话只读复核（不点击、不发送、不改 CSP）：最后一轮有两个 `复制` 按钮，
+  一个在写作块内，一个在操作栏。新版 `readCopyControl` 返回 `{ ok: true, label: "复制" }`，
+  点击选择器匹配 1 个元素。
+- run1：`COLLECTED`，`parse_ok: true`，`send_attempts` 1，5381 字符。未出现写作块
+  （只有一个复制按钮），因此不计入写作块验证，但无损链路端到端可用。落账文本保留了标题、
+  表格行、代码围栏和 FILE 标记，无制表符，无说话人前缀。
+- run2（任务明确要求写作块）：页面该轮出现 1 个写作块和 2 个复制按钮，即原失败场景。
+  `COLLECTED`，`parse_ok: true`，`send_attempts` 1，5253 字符，收齐包含写作块内容的原始 Markdown。
+
+两次都在首段 follow 内收齐。未覆盖：英文界面 `Copy` 标签（仅有离线测试）、其他宿主、账号或档位
+（写作块是否出现由模型决定）、以及 `--mode recover` 对无损收集的在线行为。
+这是单宿主观察，不是正式验收，`certifies_current_tree` 为 false。结构化记录见
+`capability-manifest.json` 的 `lossless_copy_observation` 键。

@@ -14,7 +14,7 @@ py -3.12 -B tests/pro_bridge/test_faults.py
 py -3.12 -B tests/pro_bridge/test_security.py
 py -3.12 -B -m unittest tests.pro_bridge.test_runtime_package -v
 py -3.12 -B -m unittest discover -s tests/audit -p test_*.py -v
-node --test tests/audit/browser_host.test.mjs tests/audit/online_host.test.mjs tests/audit/task_pack.test.mjs tests/audit/answer_result.test.mjs tests/audit/cursor_page_channel.test.mjs
+node --test tests/audit/browser_host.test.mjs tests/audit/online_host.test.mjs tests/audit/task_pack.test.mjs tests/audit/answer_result.test.mjs tests/audit/cursor_page_channel.test.mjs tests/audit/lossless_response.test.mjs
 ```
 
 The CI workflow must not contact a live model/page or use real receipts, credentials or repositories. Avoid posting private task logs, browser URLs or personal paths in issues. Do not add real credentials or live ChatGPT sessions as fixtures.

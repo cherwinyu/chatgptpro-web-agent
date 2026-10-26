@@ -29,7 +29,7 @@
 1. **打包**：`adapters/generic/task_pack.mjs` 把 `pack.json`（选定的文件或文件片段，可选一段 `git diff`）打包成一个自包含的任务文件。打包有字节预算，超出就拒绝，不会截断。
 2. **只发送一次**：`adapters/generic/online_host.mjs` 的 `offloadTask` 核对页面上可见的模型和强度，在本地账本里写入持久的单次发送资格，点击一次发送，等待后返回限长摘录。
 3. **凭原回执恢复**：`recoverTask` 重新载入同一张回执，继续等待或读取已保存的回复。它从不点击发送。
-4. **解析**：`adapters/generic/answer_result.mjs` 按约定读取回复结尾的 JSON 块（也能处理页面渲染后的文本形态），得到结论、摘要和发现项。
+4. **解析**：`adapters/generic/answer_result.mjs` 按约定读取回复结尾的 JSON 块（也能处理页面渲染后的文本形态），得到结论、摘要和发现项。采用可选的无损回收时，落账文本为原始 Markdown。
 
 由这条流程引出三个设计取舍：
 
@@ -54,6 +54,7 @@
 | 答案解析，含页面渲染后的文本形态 | `adapters/generic/answer_result.mjs` | `tests/audit/answer_result.test.mjs` |
 | 独立的 Git 结果验证 | `tools/pro_bridge/cli.py verify` | `tests/pro_bridge/test_security.py`、`tests/audit/test_browser_delivery.py` |
 | 精简运行时包与 `identify` 来源校验 | `tools/pro_bridge/` | `tests/pro_bridge/test_runtime_package.py` |
+| 可选的无损回收：通过页面复制按钮读回整条回复的原始 Markdown | `adapters/generic/lossless_response.mjs` | `tests/audit/lossless_response.test.mjs` |
 | 实验性的 Cursor 页面通道示例（只在源码包中） | `examples/cursor_page_channel/` | `tests/audit/cursor_page_channel.test.mjs` |
 
 Windows CI 在每次 push 和 pull request 时运行这些离线检查。测试使用合成数据，不登录、不打开 ChatGPT，也不发送任何内容。Windows CI 只是离线检查。
@@ -67,6 +68,7 @@ Windows CI 在每次 push 和 pull request 时运行这些离线检查。测试�
 | 2026-10-19 | Codex 桌面版内置浏览器；可见 GPT-6 / Pro | 一条合成审查，发送一次，回收到回复 | 否：历史观察（`online_offload`） | 否。它的运行时摘要与后来的源码树不一致，因此不能证明当前这份代码。 |
 | 2026-10-20 | Windows Codex 内置浏览器；可见 GPT-6 / Pro | 一条合成审查，发送一次。第一次等待以 `HOST_TIMEOUT` 结束；对同一张回执调用 `recoverTask` 回收到回复，宿主运行时重启后再次回收成功，发送次数仍为 1 | 是：所有者的单宿主合成验收（`synthetic_online_acceptance`） | 否。只覆盖那里记录的提交和运行时摘要。 |
 | 2026-10-25 | Windows Cursor IDE 浏览器；非 Pro 档 | Cursor 页面通道示例：三次尝试，两次真实发送。task1 因请求的标签与页面不一致，在发送前被拒绝，没有写回执。task2 和 task3 的任务文件由 `task_pack.mjs` 生成。task2 回收到回复，但渲染形态未能解析；修复解析器后离线重新解析成功。task3 回收到回复、解析成功，并凭同一张回执恢复，没有重发 | 否：仅为观察（`cursor_page_channel_observation`） | 否。最后一次运行（task3）记录的运行时摘要与当前源码树相同（由 manifest 记录推导），但 `formal_acceptance` 与 `certifies_current_tree` 均为 false，不构成验收。 |
+| 2026-10-26 | Windows Cursor IDE 浏览器；非 Pro 档 | 对合成翻译任务做无损回收（`--collection lossless`）。对原失败会话的只读复核发现一个有效的复制控件。run1（无写作块）和 run2（复现写作块）各发送一次，均以原始 Markdown 收集，`parse_ok: true` | 否：仅为观察（`lossless_copy_observation`） | 否。manifest 记录的是收集时的运行时摘要，对应基线提交加未提交改动；`formal_acceptance` 与 `certifies_current_tree` 均为 false，不构成验收。 |
 
 当前运行时摘要没有正式在线验收。消费方项目需要自己做一次合成在线验收。
 

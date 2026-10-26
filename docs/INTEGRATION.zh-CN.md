@@ -75,6 +75,8 @@ const outcome = await online.offloadTask({
 
 一个实验性的 Cursor 页面通道脚本示例见 `examples/cursor_page_channel/README.zh-CN.md`（该示例仅在源码仓库中提供，不在精简运行时包里）。它需要对授权标签页临时开启 CSP 绕过。2026-10-25 在 Cursor IDE 浏览器的单个宿主上做过一次合成观察，不是正式验收；细节见下文「已验收和未验收」和该示例的 README。
 
+可选模块 `adapters/generic/lossless_response.mjs` 回收整条回复的原始 Markdown，而不是渲染文本。它导出 `createLosslessCollection({ tab, run, readPage })`（返回 `{ tab, run, lastFailure, drain }`），以及 `copyFinalResponse`、`readCopyControl`、`createLosslessAdapter`。宿主需要提供 `tab.clipboard`，含 `read`、`write`、`writeText`（可选 `systemRestorationApplicable`）。包装后的 `run` 在 `collect-browser` 之前要求无损证明。该模块不修改 `online_host.mjs` 的状态机。Cursor 页面通道示例默认使用它（`--collection lossless`）。
+
 网页读不到你的仓库，所以它需要的材料必须全部放进 `taskFile`。回复是自由文本；约定一个结尾 JSON 块后，可以只读紧凑结果。这不等于省 token：打包、等待和复核仍有成本（`NOT_OBSERVABLE`）。
 
 `adapters/generic/task_pack.mjs` 把 `pack.json` 打包成 `task.txt`。在仓库根目录运行，stdout 只有 manifest（`out`、`bytes`、`sha256`，以及每个来源的 `path`/`selector`/`bytes`/`sha256`）。
@@ -112,7 +114,7 @@ node adapters/generic/task_pack.mjs --spec pack.json --out task.txt [--root .]
 | `findings` | 数组，可为空；每项含字符串 `severity`（取 `high`、`medium` 或 `low`）、`title`、`evidence`、`suggestion` |
 | `confidence` | `high`、`medium` 或 `low` |
 
-只取最后一个完整块。最后一个块未闭合时，不回退到更早的块。收集到的是页面渲染后的 `innerText`，其中代码围栏会被渲染掉，只留下单独一行 `JSON`。仅当正文里没有任何 ```` ```json ```` 开启围栏时，解析器才取最后一个去掉首尾空白后整行恰为 `JSON` 或 `json` 的行；该行之后直到结尾必须是单个 JSON 对象，否则返回 `ANSWER_JSON_INVALID`，不会往前回退到更早的行。`answerFormatText()` 仍然要求网页输出 ```` ```json ```` 块。解析失败返回 `parse_ok: false` 及错误码，如 `ANSWER_JSON_BLOCK_NOT_FOUND`、`ANSWER_JSON_BLOCK_UNCLOSED`、`ANSWER_JSON_INVALID`、`ANSWER_SCHEMA_INVALID`。由主代理自己阅读回复，不要求网页重做，也不重发。
+只取最后一个完整块。最后一个块未闭合时，不回退到更早的块。无损回收（示例默认）收集到的是从页面复制按钮读回的原始 Markdown，所以块保留 ```` ```json ```` 围栏。渲染回收收集到的是页面渲染后的 `innerText`，其中代码围栏会被渲染掉，只留下单独一行 `JSON`。对渲染形态，仅当正文里没有任何 ```` ```json ```` 开启围栏时，解析器才取最后一个去掉首尾空白后整行恰为 `JSON` 或 `json` 的行；该行之后直到结尾必须是单个 JSON 对象，否则返回 `ANSWER_JSON_INVALID`，不会往前回退到更早的行。`answerFormatText()` 仍然要求网页输出 ```` ```json ```` 块。解析失败返回 `parse_ok: false` 及错误码，如 `ANSWER_JSON_BLOCK_NOT_FOUND`、`ANSWER_JSON_BLOCK_UNCLOSED`、`ANSWER_JSON_INVALID`、`ANSWER_SCHEMA_INVALID`。由主代理自己阅读回复，不要求网页重做，也不重发。
 
 ```powershell
 node adapters/generic/answer_result.mjs --file reply.txt --kind review [--sha256 <hex>] [--out parsed.json]
@@ -152,7 +154,7 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 
 | 路径 | 用途 | 限制 |
 | --- | --- | --- |
-| `browser_response`（`offloadTask` / `recoverTask`） | 把聊天页面上的回复写入显式账本，主代理在本地读取正文。 | 网页不需要读取你的仓库，也不需要写 GitHub。正文可能夹有界面标签。它不是审查批准。 |
+| `browser_response`（`offloadTask` / `recoverTask`） | 把聊天页面上的回复（渲染文本，或无损回收时的原始 Markdown）写入显式账本，主代理在本地读取正文。 | 网页不需要读取你的仓库，也不需要写 GitHub。渲染回收时正文可能夹有界面标签并丢失 Markdown 结构；无损回收（可选模块 `adapters/generic/lossless_response.mjs`）时为原始 Markdown。它不是审查批准。 |
 | `git`（`verify`） | 由外部写入者把约定的结果文件放到结果分支，现有验证器核对 Git 对象。 | 本助手不写这些文件。`verify` 拒绝把 `browser_response` 任务当成 Git 批准。 |
 
 材料能放进任务文件时用 `browser_response`。只有确实存在外部写入者时才用 Git 交付。不要把聊天回复串成一次 GitHub 写入批准。
@@ -172,5 +174,7 @@ const outcome = await online.recoverTask({ tab, run, budgetMs: 120000 });
 - task3（`kind review`，代码为基线提交加上当时未提交的渲染形态解析修复，即同一 PR 一并合入的 `adapters/generic/answer_result.mjs` 改动）：采集时运行时源摘要为 `e223ac0e1b0b0630019c31aa558984ed58eea3c4f1e8c747e1c7ab5b0dfe5dcf`（范围 `tools/pro_bridge`、`adapters/generic`）。一次发送（`send_attempts` 1），约 50 秒后 `COLLECTED`，`parse_ok: true`，`verdict: PASS`，0 条 finding，正文 179 字符，SHA-256 `6921f0d9bf82c987e7dba34a2b8ae7bce4f0416b8aacd0be8a0e0f24526687f4`。随后对同一回执执行 `--mode recover`（重新开启 CSP 绕过并再次注入 bootstrap），返回 `COLLECTED`，SHA-256 相同，`send_attempts` 仍为 1，没有重发。
 
 基线提交为 `a88201bfa6f92ff2939c8689058dbeab9d70170f`（main）。对应记录在能力清单（capability manifest）的键 `cursor_page_channel_observation` 下。边界：一个宿主、一个界面语言、非 Pro 档、两次合成任务；不是正式验收，`certifies_current_tree` 为 false；不证明节省 token 或订阅额度，也不证明后端模型身份。会话 URL、回复正文和 bootstrap 凭据只留在本地，不入库。
+
+2026-10-26，Director 现场验证（`director_live_verification`）在同一类宿主上做了第二次单宿主合成观察，本次对象是无损回收（`--collection lossless`）：Windows 上 Cursor IDE 内置浏览器，中文普通 Chat，已登录，非 Pro 档，页面可见标签 `6` / `6 极高`（页面文字，不是后端模型身份）。代码为基线提交 `a5a2f65a4949e2f2265d14447f8d25c666e67baa` 加上当时未提交的无损复制改动；采集时运行时源码摘要为 `1d80666fca0ea661c665e559edb51b1f93e3c4af675d1b0206cf07d8fa7486a0`（范围 `tools/pro_bridge` 与 `adapters/generic`）。这是收集时记录的摘要，不是对当前源码树的声明。每次运行后都已关闭 CSP 绕过并重载页面。对原失败会话的只读复核发现最后一轮有两个 `复制` 按钮（一个在写作块内，一个在操作栏），`readCopyControl` 返回一个有效控件。run1：`COLLECTED`，`parse_ok: true`，`send_attempts` 1，5381 字符，未出现写作块，只证明无损链路可用，不算写作块验证。run2 复现了带两个复制按钮的写作块，`COLLECTED`，`parse_ok: true`，`send_attempts` 1，5253 字符，落账为原始 Markdown。未覆盖：英文界面 `Copy` 标签（仅有离线测试）、其他宿主、账号或档位，以及 `--mode recover` 对无损收集的在线行为。这是单宿主观察，不是正式验收，`certifies_current_tree` 为 false。记录在能力清单的键 `lossless_copy_observation` 下。会话 URL、回复正文和 bootstrap 凭据不入库。
 
 尚未验收：token 或订阅额度节省、后端模型身份、费用归属于谁、无人值守的生产使用、通用浏览器驱动、凭据保管、把聊天回复变成 GitHub 写入，以及把其他宿主或消费方项目当成已被这次运行验收。
