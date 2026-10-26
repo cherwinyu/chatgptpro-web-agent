@@ -196,5 +196,82 @@
     ],
     "documentation": "examples/cursor_page_channel/README.md"
   },
+  "lossless_copy_observation": {
+    "status": "SINGLE_HOST_SYNTHETIC_OBSERVATION",
+    "formal_acceptance": false,
+    "certifies_current_tree": false,
+    "date": "2026-10-26",
+    "entrypoint": "examples/cursor_page_channel/cursor_page_host.mjs",
+    "page_agent": "examples/cursor_page_channel/cursor_page_agent.mjs",
+    "lossless_module": "adapters/generic/lossless_response.mjs",
+    "collection": "lossless",
+    "host": "Windows Cursor IDE in-app browser, Chinese ordinary Chat on chatgpt.com, logged in",
+    "evidence_origin": "director_live_verification",
+    "csp_bypass": {
+      "method": "Page.setBypassCSP",
+      "cleanup_executed": true,
+      "cleanup": "After each run, Page.setBypassCSP was executed with enabled set to false and the page was reloaded."
+    },
+    "base_commit": "a5a2f65a4949e2f2265d14447f8d25c666e67baa",
+    "runtime_source_digest_at_collection": "1d80666fca0ea661c665e559edb51b1f93e3c4af675d1b0206cf07d8fa7486a0",
+    "runtime_roots": [
+      "tools/pro_bridge",
+      "adapters/generic"
+    ],
+    "runtime_source_scope": "Base commit plus the uncommitted lossless-copy change; unchanged between the two runs. examples/ is outside the digest scope.",
+    "selection": {
+      "visible_model_label": "6",
+      "visible_effort_label": "6 极高",
+      "pro_tier": false,
+      "label_meaning": "visible page labels, not backend model identity"
+    },
+    "original_session_recheck": {
+      "mode": "read-only; no click, no send, no CSP change",
+      "copy_buttons_on_last_turn": 2,
+      "layout": "one inside a writing block (within the assistant content unit), one in the action bar",
+      "read_copy_control": {
+        "ok": true,
+        "label": "复制"
+      },
+      "click_selector_matches": 1
+    },
+    "runs": [
+      {
+        "run": "run1",
+        "outcome": "COLLECTED",
+        "parse_ok": true,
+        "send_attempts": 1,
+        "result_characters": 5381,
+        "answer_sha256_prefix": "e6c54d73",
+        "answer_sha256_note": "Only the prefix is recorded in the source summary",
+        "writing_block_present": false,
+        "note": "One copy button only; not writing-block verification, but the lossless path worked end to end"
+      },
+      {
+        "run": "run2",
+        "outcome": "COLLECTED",
+        "parse_ok": true,
+        "send_attempts": 1,
+        "result_characters": 5253,
+        "answer_sha256_prefix": "c0852d25",
+        "answer_sha256_note": "Only the prefix is recorded in the source summary",
+        "writing_block_present": true,
+        "copy_buttons_on_turn": 2,
+        "note": "Writing block reproduced; original Markdown including the writing block was stored"
+      }
+    ],
+    "not_covered": [
+      "English UI label Copy was covered by offline tests only, not observed online",
+      "One host, one account and one tier; whether a writing block appears is up to the model",
+      "--mode recover with lossless collection was not run online; both runs collected within the first follow segment"
+    ],
+    "limitations": [
+      "Not formal acceptance and does not certify the current tree",
+      "Visible labels are not backend model identity",
+      "No measured token or subscription quota saving",
+      "The digest is the one recorded at collection time on a base commit plus an uncommitted change"
+    ],
+    "documentation": "examples/cursor_page_channel/README.md"
+  },
   "model_or_fee_claim": "NOT_OBSERVABLE"
 }

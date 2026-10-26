@@ -120,11 +120,11 @@ force the transition, and it does not return on the first missing turn: it keeps
 waiting until the reply, a terminal page state, the host budget, or the original
 deadline.
 
-`COLLECTED` means the final rendered text was stored. The record is
+`COLLECTED` means the final reply text was stored: the rendered `innerText` without the lossless module or with `--collection rendered`, or the original Markdown read back from the copy button with lossless collection. The record is
 `RESULT_SEEN`, `delivery_integrity=BROWSER_OBSERVED`, `review_approved=false`.
 The body is `tasks[task_id].browser_result.text` in the explicit ledger's
-`ledger.json`; `browser_result.sha256` hashes its UTF-8 bytes. It may contain
-rendered UI labels around code. Only load the needed conclusion into the main
+`ledger.json`; `browser_result.sha256` hashes its UTF-8 bytes. The rendered `innerText` may contain
+UI labels around code; lossless collection does not. Only load the needed conclusion into the main
 agent's context; `readCollected` checks its identity and SHA-256 and returns a
 bounded excerpt with `characters` and `truncated`. It performs no browser work,
 does not resend, and does not grant review approval. Preserve the full response

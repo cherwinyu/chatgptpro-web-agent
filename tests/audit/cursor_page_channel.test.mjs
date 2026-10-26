@@ -8,10 +8,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { startCursorPageChannel, createBootstrapLoader, createCursorPageRelay, makeRequest,
-  validateRequest, runTaskContext, runCursorPageExample, main, CSP_REMINDER } from '../../examples/cursor_page_channel/cursor_page_host.mjs';
+  validateRequest, runTaskContext, runCursorPageExample, parseArguments, main, CSP_REMINDER } from '../../examples/cursor_page_channel/cursor_page_host.mjs';
 import { PAGE_ORIGIN, LIMITS, canonical, createPageAgentSource, executePageOperation } from '../../examples/cursor_page_channel/cursor_page_agent.mjs';
 import { localTransport } from '../../adapters/generic/local_transport.mjs';
 import * as online from '../../adapters/generic/online_host.mjs';
+import { createLosslessCollection } from '../../adapters/generic/lossless_response.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const session = 'synthetic-session-0001';
@@ -438,4 +439,172 @@ test('real ledger claim precedes relay fill/click; lost click result stays unkno
   assert.equal(operations.length, count);
   assert.equal((await run('status', ['--receipt', run.receiptPath])).value.send_attempts, 1);
   assert.ok(existsSync(run.receiptPath));
+});
+
+test('clipboard operations run in an isolated page realm and never call native clipboard writes', async () => {
+  for (const first of ['clipboard.read', 'clipboard.writeText', 'clipboard.write']) {
+    const original = { write: () => assert.fail('system write'), writeText: () => assert.fail('system writeText'),
+      read: () => assert.fail('system read') };
+    const context = { navigator: { clipboard: original } };
+    const execute = (op, value) => runInNewContext(`(${executePageOperation.toString()})(${JSON.stringify({ op, params: { value } })})`, context);
+    const entries = [{ entries: [{ mimeType: 'text/plain', text: 'Synthetic text' }, { mimeType: 'image/png' }] }];
+    await execute(first, first === 'clipboard.write' ? entries : 'Synthetic text');
+    assert.ok(context.__webAgentCursorClipboardV1);
+    assert.notEqual(context.navigator.clipboard, original);
+    await execute('clipboard.writeText', 'sentinel');
+    assert.equal((await execute('clipboard.read'))[0].entries[0].text, 'sentinel');
+    await execute('clipboard.write', entries);
+    assert.equal(JSON.stringify(await execute('clipboard.read')), JSON.stringify(entries));
+    await context.navigator.clipboard.writeText('## Synthetic heading\r\n');
+    assert.equal((await execute('clipboard.read'))[0].entries[0].text, '## Synthetic heading\r\n');
+    const types = ['text/plain', 'text/html', 'image/png'], reads = [];
+    await context.navigator.clipboard.write([{ types, getType: async type => {
+      reads.push(type); return { text: async () => type === 'text/plain' ? '| a | b |' : '<b>Synthetic</b>' };
+    } }]);
+    assert.deepEqual(reads, ['text/plain', 'text/html']);
+    assert.equal(JSON.stringify(await execute('clipboard.read')), JSON.stringify([{ entries: [
+      { mimeType: 'text/plain', text: '| a | b |' }, { mimeType: 'text/html', text: '<b>Synthetic</b>' },
+      { mimeType: 'image/png' },
+    ] }]));
+    assert.equal(await context.navigator.clipboard.readText(), '| a | b |');
+    for (const value of [null, {}, [null], [{}], [{ entries: {} }], [{ entries: [null] }],
+      [{ entries: [{ mimeType: 1 }] }], [{ entries: [{ mimeType: 'text/plain', text: 1 }] }],
+      [{ entries: [{ mimeType: 'text/plain', base64: 'AAAA' }] }], [{ entries: [], extra: true }]]) {
+      await assert.rejects(execute('clipboard.write', value), /PAGE_CLIPBOARD_INVALID/);
+    }
+    await assert.rejects(execute('clipboard.writeText', null), /PAGE_CLIPBOARD_INVALID/);
+  }
+});
+
+test('clipboard installation handles nonconfigurable navigator property without native writes', async () => {
+  const original = { write: () => assert.fail('system write'), writeText: () => assert.fail('system writeText') };
+  const navigator = {};
+  Object.defineProperty(navigator, 'clipboard', { value: original });
+  const context = { navigator };
+  await runInNewContext(`(${executePageOperation.toString()})({op:'clipboard.read'})`, context);
+  await original.writeText('synthetic');
+  assert.equal(context.__webAgentCursorClipboardV1.items[0].entries[0].text, 'synthetic');
+});
+
+test('relay exposes page clipboard operations and preserves selector while ignoring click options', async t => {
+  const records = [];
+  const tab = createCursorPageRelay({ evidenceDirectory: temp(t), browserId: 'browser', viewId: 'tab',
+    pageChannel: { dispatch: async record => { records.push(record); return resultFor(record, []); } } });
+  assert.equal(tab.clipboard.systemRestorationApplicable, false);
+  await tab.clipboard.read();
+  await tab.clipboard.writeText('synthetic');
+  await tab.clipboard.write([{ entries: [{ mimeType: 'text/plain', text: 'synthetic' }] }]);
+  const selector = '[data-turn-key="turn-1"] button[aria-label="Copy"]:not([data-content-search-unit-key] button)';
+  await tab.playwright.locator(selector).click({ timeoutMs: 1000 });
+  assert.deepEqual(records.map(record => record.op), ['clipboard.read', 'clipboard.writeText', 'clipboard.write', 'locator.click']);
+  assert.deepEqual(records.at(-1).params, { selector });
+});
+
+test('serialized locator click targets only the action bar through the content exclusion selector', async () => {
+  let clicks = 0;
+  const content = { inContent: true, label: 'Copy', click: () => assert.fail('content copy') };
+  const action = { inContent: false, label: 'Copy', getAttribute: () => null, matches: () => true,
+    dispatchEvent() {}, click: () => clicks++ };
+  const selector = '[data-turn-key="turn-1"] button[aria-label="Copy"]:not([data-content-search-unit-key] button)';
+  const context = { document: { querySelectorAll: value => {
+    assert.equal(value, selector);
+    // Minimal synthetic DOM models the selector's label and descendant exclusion.
+    return [content, action].filter(button => button.label === 'Copy' && !button.inContent);
+  } }, window: { PointerEvent: EventFixture, MouseEvent: EventFixture } };
+  await runInNewContext(`(${executePageOperation.toString()})(${JSON.stringify({ op: 'locator.click', params: { selector } })})`, context);
+  assert.equal(clicks, 1);
+});
+
+test('collection defaults to lossless and accepts only lossless or rendered', () => {
+  const args = cliArguments(ROOT);
+  assert.equal(parseArguments(args).collection, 'lossless');
+  for (const value of ['lossless', 'rendered']) assert.equal(parseArguments([...args, '--collection', value]).collection, value);
+  for (const value of ['auto', 'LOSSLESS', '']) assert.throws(() => parseArguments([...args, '--collection', value]), /PAGE_ARGUMENTS_INVALID/);
+});
+
+test('follow stops on losslessFailure and drains before observing late failure diagnostics', async () => {
+  const failure = { stage: 'click_copy', code: 'LOSSLESS_CANCELLED' };
+  for (const late of [false, true]) {
+    const events = [];
+    let drained = false;
+    const outcome = await runTaskContext({ mode: 'offload', followMs: 10000, taskOptions: {},
+      createCollection: late ? () => ({ tab: 'wrapped-tab', run: 'wrapped-run',
+        drain: async () => { await Promise.resolve(); drained = true; events.push('drain'); },
+        get lastFailure() { return drained ? failure : null; } }) : undefined,
+      online: { offloadTask: async options => {
+        if (late) { assert.equal(options.tab, 'wrapped-tab'); assert.equal(options.run, 'wrapped-run'); }
+        events.push('offload');
+        return { status: 'HOST_TIMEOUT', doNotResend: true, ...(late ? {} : { losslessFailure: failure }) };
+      }, recoverTask: () => assert.fail('must not follow lossless failure') },
+    });
+    assert.deepEqual(outcome.losslessFailure, failure);
+    assert.deepEqual(events, late ? ['offload', 'drain'] : ['offload']);
+  }
+});
+
+test('fresh collection adapter per follow segment and cleanup on thrown errors', async () => {
+  let created = 0, drained = 0, now = 0;
+  const createCollection = () => ({ tab: ++created, run: 'wrapped', drain: async () => { drained++; } });
+  const outcome = await runTaskContext({ mode: 'offload', followMs: 10000, taskOptions: {}, createCollection,
+    now: () => now++, online: {
+      offloadTask: async options => { assert.equal(options.tab, 1); return { status: 'HOST_TIMEOUT', doNotResend: true }; },
+      recoverTask: async options => { assert.equal(drained, 1); assert.equal(options.tab, 2); return { status: 'COLLECTED' }; },
+    } });
+  assert.equal(outcome.status, 'COLLECTED');
+  assert.equal(drained, 2);
+  await assert.rejects(runTaskContext({ mode: 'recover', taskOptions: {}, createCollection,
+    online: { recoverTask: async () => { throw Error('SYNTHETIC_FAILURE'); } } }), /SYNTHETIC_FAILURE/);
+  assert.equal(drained, 3);
+});
+
+test('lossless collection crosses the relay and page clipboard with single-click proof', async t => {
+  const directory = temp(t), request = { taskId: '00000000-0000-4000-8000-000000000001',
+    nonce: 'a'.repeat(32), requestSha256: 'b'.repeat(64) };
+  const expected = { status: 'FINAL_CANDIDATE', url: 'https://chatgpt.com/c/synthetic',
+    turnId: 'turn-1', responseIds: 'reply-1', fingerprint: 'synthetic', contentLength: 100 };
+  const markdown = '## Synthetic heading\n\n| a | b |\n|---|---|\n| 1 | 2 |\n';
+  let clicks = 0, collected = 0;
+  const action = { getAttribute: key => key === 'aria-label' ? 'Copy' : null, closest: () => null,
+    getClientRects: () => [1], matches: () => true, dispatchEvent() {},
+    click: () => { clicks++; void context.navigator.clipboard.writeText(markdown); } };
+  const reply = { closest: () => null, getAttribute: key => key === 'data-content-search-unit-key' ? 'unit:assistant' : 'reply-1' };
+  const nested = { ...action, closest: selector => selector === '[data-content-search-unit-key]' ? reply : null };
+  const turn = { closest: () => null, getAttribute: () => 'turn-1', querySelectorAll: selector => {
+    if (selector === '[data-content-search-unit-key]') return [reply];
+    if (selector === '[data-talvt-turn-state]') return [{ getAttribute: () => 'complete' }];
+    assert.equal(selector, 'button[aria-label]'); return [nested, action];
+  } };
+  const context = { navigator: { clipboard: { writeText: () => assert.fail('native clipboard') } },
+    location: { href: expected.url }, document: { readyState: 'complete', querySelectorAll: selector => {
+      if (selector === '[data-turn-key]') return [turn];
+      assert.equal(selector, '[data-turn-key="turn-1"] button[aria-label="Copy"]:not([data-content-search-unit-key] button)');
+      return [action];
+    } }, window: { PointerEvent: EventFixture, MouseEvent: EventFixture } };
+  context.eval = expression => runInNewContext(expression, context);
+  const readPage = function syntheticPage(request) {
+    if (request.includeText) throw Error('RENDERED_TEXT_FORBIDDEN');
+    return { status: 'FINAL_CANDIDATE', url: 'https://chatgpt.com/c/synthetic',
+      turnId: 'turn-1', responseIds: 'reply-1', fingerprint: 'synthetic', contentLength: 100 };
+  };
+  const tab = createCursorPageRelay({ evidenceDirectory: directory, viewId: 'tab', browserId: 'browser',
+    pageChannel: { dispatch: async record => resultFor(record, await runInNewContext(
+      `(${executePageOperation.toString()})(${JSON.stringify(record)})`, context)) } });
+  const run = async command => {
+    if (command === 'collect-browser') { collected++; return { code: 0 }; }
+    assert.equal(command, 'status');
+    return { code: 0, value: { task_id: request.taskId, request_sha256: request.requestSha256,
+      nonce: request.nonce, state: 'SUBMITTED', session_url: expected.url } };
+  };
+  run.receiptPath = join(directory, 'prepare.json');
+  writeFileSync(run.receiptPath, JSON.stringify({ receipt: 'synthetic', prompt: 'synthetic',
+    task_id: request.taskId, request_sha256: request.requestSha256,
+    browser_target: { browser_context: 'browser', tab_id: 'tab' } }));
+  const collection = createLosslessCollection({ tab, run, readPage });
+  try {
+    const result = await collection.tab.playwright.evaluate(readPage, { ...request, includeText: true });
+    assert.equal(result.text, markdown);
+    assert.equal(result.clipboardRestoration, 'not_applicable_cursor_relay');
+    await collection.run('collect-browser', [], { result: { ...result, status: 'PAGE_COMPLETE' } });
+    assert.equal(clicks, 1); assert.equal(collected, 1);
+  } finally { await collection.drain(); }
 });

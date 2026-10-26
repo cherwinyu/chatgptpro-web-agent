@@ -253,26 +253,46 @@ export function createCursorPageRelay({ evidenceDirectory, viewId, browserId, pa
     },
   });
   return { id: viewId, url: () => request('url'), getAXState: () => request('dom.state'),
+    clipboard: {
+      systemRestorationApplicable: false,
+      read: () => request('clipboard.read'),
+      writeText: value => request('clipboard.writeText', { value }),
+      write: value => request('clipboard.write', { value }),
+    },
     playwright: {
       evaluate: (fn, arg) => request('evaluate', { expression: `(${fn.toString()})(${JSON.stringify(arg) ?? 'undefined'})` }),
       getByRole: (name, options = {}) => role({ role: name, ...options }),
       locator: selector => ({ fill: value => request('locator.fill', { selector, value }),
-        click: () => request('locator.click', { selector }),
+        click: _options => request('locator.click', { selector }),
         getByRole: (name, options = {}) => role({ role: name, ...options, within: selector }) }),
     } };
 }
 
-export async function runTaskContext({ online, mode, taskOptions, budgetMs = 45000, followMs, now = () => performance.now() }) {
+export async function runTaskContext({ online, mode, taskOptions, budgetMs = 45000, followMs,
+  createCollection, now = () => performance.now() }) {
   if (!['offload', 'recover'].includes(mode)) throw Error('PAGE_MODE_INVALID');
   limit(budgetMs, 45000, 'PAGE_BUDGET_INVALID');
   if (followMs !== undefined) limit(followMs, 900000, 'PAGE_FOLLOW_INVALID');
   const start = now();
   const options = { ...taskOptions, budgetMs: Math.min(budgetMs, followMs ?? budgetMs) };
-  let outcome = await online[mode === 'offload' ? 'offloadTask' : 'recoverTask'](options);
-  while (followMs !== undefined && outcome.status === 'HOST_TIMEOUT' && outcome.doNotResend === true && !outcome.error) {
+  const invoke = async (method, options) => {
+    // Each wait segment owns its adapter; drain before deciding whether to follow.
+    const collection = createCollection?.(options);
+    let outcome;
+    try {
+      outcome = await online[method](collection ? { ...options, tab: collection.tab, run: collection.run } : options);
+      return outcome;
+    } finally {
+      await collection?.drain();
+      if (outcome && collection?.lastFailure) outcome.losslessFailure = collection.lastFailure;
+    }
+  };
+  let outcome = await invoke(mode === 'offload' ? 'offloadTask' : 'recoverTask', options);
+  while (followMs !== undefined && outcome.status === 'HOST_TIMEOUT' && outcome.doNotResend === true &&
+      !outcome.losslessFailure && !outcome.error) {
     const remaining = Math.floor(followMs - (now() - start));
     if (remaining < 1) break;
-    outcome = await online.recoverTask({ ...options, budgetMs: Math.min(budgetMs, remaining) });
+    outcome = await invoke('recoverTask', { ...options, budgetMs: Math.min(budgetMs, remaining) });
   }
   return outcome;
 }
@@ -303,7 +323,7 @@ export async function runCursorPageExample({ startChannel, operation, emit = lin
 export function parseArguments(argv) {
   const names = ['mode', 'web-agent-root', 'evidence-directory', 'ledger', 'receipt', 'task-file', 'pack-spec',
     'source-root', 'repository', 'source-sha', 'source-ref', 'browser-id', 'tab-id', 'model', 'effort',
-    'ui-profile', 'orchestration', 'kind', 'budget-ms', 'follow-ms', 'connect-timeout-ms', 'response-timeout-ms'];
+    'ui-profile', 'orchestration', 'kind', 'budget-ms', 'follow-ms', 'connect-timeout-ms', 'response-timeout-ms', 'collection'];
   const values = {};
   for (let i = 0; i < argv.length; i += 2) {
     const name = argv[i].slice(2);
@@ -313,6 +333,8 @@ export function parseArguments(argv) {
   }
   for (const name of ['mode', 'web-agent-root', 'evidence-directory', 'ledger', 'receipt', 'repository',
     'source-sha', 'source-ref', 'browser-id', 'tab-id', 'model', 'effort', 'ui-profile', 'orchestration', 'kind']) required(values[name]);
+  values.collection ??= 'lossless';
+  if (!['lossless', 'rendered'].includes(values.collection)) throw Error('PAGE_ARGUMENTS_INVALID');
   if (!['offload', 'recover'].includes(values.mode) || !['review', 'analysis'].includes(values.kind) ||
       values['ui-profile'] !== 'chinese-ordinary-chat' || !/^[a-f0-9]{40}$/.test(values['source-sha']) ||
       !/^[\w.-]+\/[\w.-]+$/.test(values.repository)) throw Error('PAGE_ARGUMENTS_INVALID');
@@ -334,6 +356,8 @@ export async function main(argv = process.argv.slice(2), emit = line => process.
     const [transport, online, packing, answers] = await Promise.all([
       load('local_transport.mjs'), load('online_host.mjs'), load('task_pack.mjs'), load('answer_result.mjs'),
     ]);
+    const [lossless, browser] = v.collection === 'lossless'
+      ? await Promise.all([load('lossless_response.mjs'), load('browser_host.mjs')]) : [];
     const receiptPath = resolve(v.receipt);
     // Reuse the adapter's lexical AND real-path evidence/ledger checks before any writes.
     const run = transport.localTransport({ root, evidenceDirectory, ledger: resolve(v.ledger), receiptPath });
@@ -359,7 +383,10 @@ export async function main(argv = process.argv.slice(2), emit = line => process.
         }
         const tab = createCursorPageRelay({ evidenceDirectory, viewId: v['tab-id'], browserId: v['browser-id'],
           pageChannel: channel, operationTimeoutMs: responseTimeoutMs });
-        return runTaskContext({ online, mode: v.mode, budgetMs, followMs, taskOptions: {
+        return runTaskContext({ online, mode: v.mode, budgetMs, followMs,
+          createCollection: lossless ? options => lossless.createLosslessCollection({
+            tab: options.tab, run: options.run, readPage: browser.readChatGPTPage,
+          }) : undefined, taskOptions: {
           tab, run, browserId: v['browser-id'], evidenceDirectory, repository: v.repository,
           sourceSha: v['source-sha'], sourceRef: v['source-ref'], taskFile, orchestration: v.orchestration,
           requestedModel: v.model, requestedEffort: v.effort, observe: online.observeNewChat,
